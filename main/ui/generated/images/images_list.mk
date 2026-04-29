@@ -1,0 +1,1 @@
+GEN_CSRCS += _tempunit_RGB565A8_20x19.c _Gforce_RGB565A8_320x320.c _o_RGB565A8_20x18.c _e_RGB565A8_20x20.c _tempunit_RGB565A8_16x14.c
