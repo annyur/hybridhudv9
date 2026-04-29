@@ -1,0 +1,5 @@
+﻿dependencies:
+  waveshare/esp32_s3_touch_amoled_1_75: "*"
+  lvgl/lvgl: "*"
+  waveshare/qmi8658: "*"
+  waveshare/pcf85063a: "*"

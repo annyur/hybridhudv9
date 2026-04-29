@@ -13,5 +13,6 @@
     "--background-index",
     "--query-driver=**",
     "--compile-commands-dir=e:\\Mygithub\\hybridhudv9\\build"
-  ]
+  ],
+  "idf.flashType": "UART"
 }
