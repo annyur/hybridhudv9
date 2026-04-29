@@ -16,7 +16,7 @@ typedef enum {
 
 void screen_init(void);
 void screen_switch(screen_id_t id);
-void screen_update(void);   /* 每帧由 UI task 调用 */
+void screen_update(void);
 screen_id_t screen_current(void);
 
 #ifdef __cplusplus

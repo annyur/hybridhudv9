@@ -1,8 +1,7 @@
 /* screen.c — 界面路由 */
 #include "screen.h"
 #include "lvgl.h"
-
-#include "gui_guider.h"          /* GUI Guider 生成 */
+#include "gui_guider.h"
 #include "general.h"
 #include "race.h"
 #include "setting.h"
@@ -24,7 +23,6 @@ static const screen_ops_t s_screens[SCREEN_COUNT] = {
 static screen_id_t s_current = SCREEN_GENERAL;
 static bool s_inited = false;
 
-/* GUI Guider 全局 UI 实例 */
 extern lv_ui guider_ui;
 
 void screen_init(void)
@@ -32,7 +30,7 @@ void screen_init(void)
     if (s_inited) return;
     s_inited = true;
 
-    /* GUI Guider 初始化所有界面，默认加载 General */
+    /* GUI Guider 初始化所有界面 */
     setup_ui(&guider_ui);
 
     /* 进入默认界面 */
@@ -46,12 +44,10 @@ void screen_switch(screen_id_t id)
 {
     if (id >= SCREEN_COUNT || id == s_current) return;
 
-    /* 退出旧界面 */
     if (s_screens[s_current].exit) {
         s_screens[s_current].exit();
     }
 
-    /* 切换 LVGL screen */
     lv_obj_t *target = NULL;
     switch (id) {
         case SCREEN_GENERAL:   target = guider_ui.general;   break;
@@ -67,7 +63,6 @@ void screen_switch(screen_id_t id)
 
     s_current = id;
 
-    /* 进入新界面 */
     if (s_screens[id].enter) {
         s_screens[id].enter();
     }
