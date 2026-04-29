@@ -5,7 +5,7 @@
 #include "imu.h"
 #include "rtc.h"
 #include <lvgl.h>
-#include "gui_guider.h"   /* GUI Guider 生成的 UI 结构体 */
+#include "gui_guider.h"
 
 extern lv_ui guider_ui;
 

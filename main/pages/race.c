@@ -1,10 +1,10 @@
-/* race.c — Race 界面业务（G-force + 蓝牙闪烁） */
+/* race.c — Race 界面业务 */
 #include "race.h"
 #include "imu.h"
 #include "ble.h"
 #include <lvgl.h>
 #include <math.h>
-#include "gui_guider.h"   /* GUI Guider 生成的 UI 结构体 */
+#include "gui_guider.h"
 
 extern lv_ui guider_ui;
 
@@ -13,7 +13,7 @@ static bool s_active = false;
 void race_enter(void)
 {
     s_active = true;
-    imu_calibrate();
+    hud_imu_calibrate();   /* <-- 改名 */
 }
 
 void race_exit(void)

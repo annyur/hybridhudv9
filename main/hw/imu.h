@@ -2,18 +2,18 @@
 #ifndef IMU_H
 #define IMU_H
 
-#include <stdbool.h>   /* 在 __cplusplus 外面 */
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-void imu_init(void);
-void imu_update(void);
-void imu_calibrate(void);
-bool imu_get_accel(float *ax, float *ay, float *az);
-bool imu_get_gyro(float *gx, float *gy, float *gz);
-float imu_get_temp(void);
+void hud_imu_init(void);
+void hud_imu_update(void);
+void hud_imu_calibrate(void);
+bool hud_imu_get_accel(float *ax, float *ay, float *az);
+bool hud_imu_get_gyro(float *gx, float *gy, float *gz);
+float hud_imu_get_temp(void);
 
 #ifdef __cplusplus
 }

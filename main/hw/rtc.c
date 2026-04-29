@@ -8,7 +8,7 @@ static const char *TAG = "RTC";
 static pcf85063a_dev_t s_rtc;
 static bool s_rtc_inited = false;
 
-void rtc_init(void)
+void hud_rtc_init(void)
 {
     i2c_master_bus_handle_t bus_handle = bsp_i2c_get_handle();
     esp_err_t ret = pcf85063a_init(&s_rtc, bus_handle, PCF85063A_ADDRESS);
@@ -20,9 +20,9 @@ void rtc_init(void)
     ESP_LOGI(TAG, "PCF85063A initialized");
 }
 
-void rtc_update(void) { }
+void hud_rtc_update(void) { }
 
-void rtc_get_time(struct tm *timeinfo)
+void hud_rtc_get_time(struct tm *timeinfo)
 {
     if (!s_rtc_inited || !timeinfo) return;
 
@@ -39,7 +39,7 @@ void rtc_get_time(struct tm *timeinfo)
     timeinfo->tm_isdst = -1;
 }
 
-void rtc_set_time(const struct tm *timeinfo)
+void hud_rtc_set_time(const struct tm *timeinfo)
 {
     if (!s_rtc_inited || !timeinfo) return;
 
