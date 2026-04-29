@@ -2,11 +2,11 @@
 #ifndef AUDIO_H
 #define AUDIO_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
 
 void audio_init(void);
 void audio_play(const int16_t *data, int len);

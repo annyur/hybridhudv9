@@ -2,11 +2,11 @@
 #ifndef SD_H
 #define SD_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdbool.h>
 
 void sd_init(void);
 bool sd_is_mounted(void);

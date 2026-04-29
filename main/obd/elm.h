@@ -2,12 +2,12 @@
 #ifndef ELM_H
 #define ELM_H
 
+#include <stdint.h>
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdint.h>
-#include <stdbool.h>
 
 void elm_init(void);
 void elm_poll(uint32_t now_ms);

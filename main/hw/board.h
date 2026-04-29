@@ -2,11 +2,11 @@
 #ifndef BOARD_H
 #define BOARD_H
 
+#include "bsp/esp-bsp.h"   /* 必须在 __cplusplus 外面！ */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <bsp/esp-bsp.h>   /* BSP API：bsp_i2c_get_handle() 等 */
 
 void board_init(void);
 

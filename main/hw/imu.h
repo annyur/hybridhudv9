@@ -2,11 +2,11 @@
 #ifndef IMU_H
 #define IMU_H
 
+#include <stdbool.h>   /* 在 __cplusplus 外面 */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include <stdbool.h>
 
 void imu_init(void);
 void imu_update(void);

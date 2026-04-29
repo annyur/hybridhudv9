@@ -33,11 +33,14 @@ void ecu_parse_sgcm(uint16_t did, const uint8_t *d, int len, obd_data_t *out)
     }
 }
 
-const ecu_config_t ecu_list[] = {
-    {"BMS",  0x7A1, 0x7A9, s_bms_dids,  8, ecu_parse_bms,  false},
-    {"SGCM", 0x7E7, 0x7EF, s_sgcm_dids, 4, ecu_parse_sgcm, false},
+const ecu_profile_t ecu_bms = {
+    "BMS",  0x7A1, 0x7A9, s_bms_dids,  8, ecu_parse_bms,  false
 };
 
-const int ecu_count = sizeof(ecu_list) / sizeof(ecu_list[0]);
+const ecu_profile_t ecu_sgcm = {
+    "SGCM", 0x7E7, 0x7EF, s_sgcm_dids, 4, ecu_parse_sgcm, false
+};
+
+const int ecu_count = 2;
 
 void ecu_init(void) {}

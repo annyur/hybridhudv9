@@ -2,25 +2,18 @@
 #ifndef ECU_H
 #define ECU_H
 
+#include <stdint.h>
+#include <stdbool.h>
+#include "obd.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
-
-typedef struct {
-    int rpm;
-    int speed;
-    float soc;
-    float power_kw;
-    float gforce_x;
-    float gforce_y;
-} obd_data_t;
-
 typedef void (*ecu_parser_t)(uint16_t did, const uint8_t *d, int len, obd_data_t *out);
 
 typedef struct {
+    const char *name;
     uint16_t tx_addr;
     uint16_t rx_addr;
     const uint16_t *dids;
