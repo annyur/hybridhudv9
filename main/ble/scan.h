@@ -6,10 +6,23 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef struct {
+    char name[32];
+    uint8_t addr[6];
+    int8_t rssi;
+} scan_device_t;
+
 void scan_init(void);
 void scan_start(void);
 void scan_stop(void);
 void scan_poll(void);
+
+int scan_get_count(void);
+const scan_device_t *scan_get_device(int idx);
+bool scan_is_running(void);
 
 #ifdef __cplusplus
 }
