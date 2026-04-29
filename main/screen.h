@@ -1,0 +1,26 @@
+/* screen.h — 界面路由 */
+#ifndef SCREEN_H
+#define SCREEN_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    SCREEN_GENERAL = 0,
+    SCREEN_RACE,
+    SCREEN_SETTING,
+    SCREEN_BLUETOOTH,
+    SCREEN_COUNT
+} screen_id_t;
+
+void screen_init(void);
+void screen_switch(screen_id_t id);
+void screen_update(void);   /* 每帧由 UI task 调用 */
+screen_id_t screen_current(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
