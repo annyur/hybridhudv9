@@ -1,6 +1,5 @@
 dependencies:
-  waveshare/esp32_s3_touch_amoled_1_75: "^1.0.0"
-  lvgl/lvgl: "*"
-  waveshare/qmi8658: "*"
-  waveshare/pcf85063a: "*"
-  espressif/esp_codec_dev: "*"
+  waveshare/esp32_s3_touch_amoled_1_75: "2.0.6"
+  lvgl/lvgl: "9.4.0"
+  waveshare/qmi8658: "1.0.1"
+  waveshare/pcf85063a: "1.1.1"

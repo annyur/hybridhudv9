@@ -12,24 +12,6 @@
 
 static const char *TAG = "main";
 
-static void ui_task(void *pv)
-{
-    /* 初始化 BSP 显示（内部已包含 I2C、LCD、触摸、背光） */
-    bsp_display_start();
-    bsp_display_backlight_on();
-
-    /* 初始化 GUI Guider 和 screen 路由 */
-    screen_init();
-
-    /* LVGL 心跳循环 */
-    while (1) {
-        bsp_display_lock(0);
-        lv_timer_handler();
-        bsp_display_unlock();
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
-}
-
 static void sensor_task(void *pv)
 {
     imu_init();
@@ -42,6 +24,18 @@ static void sensor_task(void *pv)
 
 void app_main(void)
 {
-    xTaskCreatePinnedToCore(ui_task,     "UI",    8192, NULL, 5, NULL, 1);
-    xTaskCreatePinnedToCore(sensor_task, "SENS",  4096, NULL, 3, NULL, 1);
+    bsp_display_start();
+    bsp_display_backlight_on();
+    /* bsp_i2c_deinit();  <-- 删掉这行！设备还在总线上 */
+
+    bsp_display_lock(0);
+    screen_init();
+    bsp_display_unlock();
+
+    xTaskCreatePinnedToCore(sensor_task, "SENS", 4096, NULL, 3, NULL, 1);
+
+    while (1) {
+        screen_update();
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }

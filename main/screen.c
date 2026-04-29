@@ -6,8 +6,9 @@
 #include "race.h"
 #include "setting.h"
 #include "bluetooth.h"
+#include "bsp/esp-bsp.h"   /* bsp_display_lock/unlock 在这里 */
 
-/* GUI Guider 全局 UI 实例定义（ui/ 下只有 extern 声明） */
+/* GUI Guider 全局 UI 实例定义 */
 lv_ui guider_ui;
 
 typedef struct {
@@ -57,7 +58,9 @@ void screen_switch(screen_id_t id)
     }
 
     if (target) {
+        bsp_display_lock(0);
         lv_screen_load(target);
+        bsp_display_unlock();
     }
 
     s_current = id;
