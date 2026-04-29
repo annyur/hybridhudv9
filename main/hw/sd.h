@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 void sd_init(void);
 bool sd_is_mounted(void);
 

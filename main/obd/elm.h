@@ -6,12 +6,13 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+#include <stdbool.h>
+
 void elm_init(void);
 void elm_poll(uint32_t now_ms);
 bool elm_tx(const char *cmd);
 bool elm_rx_ready(void);
-const char *elm_rx_buf(void);
-void elm_rx_clear(void);
 
 #ifdef __cplusplus
 }
