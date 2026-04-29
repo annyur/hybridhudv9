@@ -30,10 +30,8 @@ void screen_init(void)
     if (s_inited) return;
     s_inited = true;
 
-    /* GUI Guider 初始化所有界面 */
     setup_ui(&guider_ui);
 
-    /* 进入默认界面 */
     s_current = SCREEN_GENERAL;
     if (s_screens[s_current].enter) {
         s_screens[s_current].enter();

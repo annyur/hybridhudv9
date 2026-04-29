@@ -6,7 +6,6 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 
-#include "board.h"
 #include "screen.h"
 #include "imu.h"
 #include "rtc.h"
@@ -15,7 +14,7 @@ static const char *TAG = "main";
 
 static void ui_task(void *pv)
 {
-    /* 初始化 BSP 显示（已包含 I2C、LCD、触摸、背光） */
+    /* 初始化 BSP 显示（内部已包含 I2C、LCD、触摸、背光） */
     bsp_display_start();
     bsp_display_backlight_on();
 
@@ -27,7 +26,7 @@ static void ui_task(void *pv)
         bsp_display_lock(0);
         lv_timer_handler();
         bsp_display_unlock();
-        vTaskDelay(pdMS_TO_TICKS(5));   /* ~200fps 刷新 */
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
@@ -37,18 +36,12 @@ static void sensor_task(void *pv)
     rtc_init();
 
     while (1) {
-        /* 这里可以定期读取传感器 */
-        vTaskDelay(pdMS_TO_TICKS(20));  /* 50Hz */
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
 void app_main(void)
 {
-    /* BSP I2C 在 bsp_display_start() 内部已初始化，
-       无需手动调用 bsp_i2c_init() */
-
     xTaskCreatePinnedToCore(ui_task,     "UI",    8192, NULL, 5, NULL, 1);
     xTaskCreatePinnedToCore(sensor_task, "SENS",  4096, NULL, 3, NULL, 1);
-
-    /* app_main 返回后，FreeRTOS 任务继续运行 */
 }
