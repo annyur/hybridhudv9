@@ -18,6 +18,7 @@ idf_component_register(
         "hw/pmu.c"
         "hw/audio.c"
         "hw/sd.c"
+        "ui/custom/custom.c"
         "ui/generated/gui_guider.c"
         "ui/generated/events_init.c"
         "ui/generated/widgets_init.c"
@@ -31,5 +32,6 @@ idf_component_register(
         "obd"
         "ble"
         "hw"
+        "ui/custom"
         "ui/generated"
 )

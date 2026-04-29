@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
 void imu_init(void);
 void imu_update(void);
 void imu_calibrate(void);

@@ -4,8 +4,9 @@
 #include "ble.h"
 #include <lvgl.h>
 #include <math.h>
+#include "gui_guider.h"   /* GUI Guider 生成的 UI 结构体 */
 
-extern gui_obj_t gui;
+extern lv_ui guider_ui;
 
 static bool s_active = false;
 
