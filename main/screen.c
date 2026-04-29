@@ -7,6 +7,9 @@
 #include "setting.h"
 #include "bluetooth.h"
 
+/* GUI Guider 全局 UI 实例定义（ui/ 下只有 extern 声明） */
+lv_ui guider_ui;
+
 typedef struct {
     void (*enter)(void);
     void (*exit)(void);
@@ -22,8 +25,6 @@ static const screen_ops_t s_screens[SCREEN_COUNT] = {
 
 static screen_id_t s_current = SCREEN_GENERAL;
 static bool s_inited = false;
-
-extern lv_ui guider_ui;
 
 void screen_init(void)
 {
