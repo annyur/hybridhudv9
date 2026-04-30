@@ -1,4 +1,3 @@
-/* ble.h — BLE 连接主控 */
 #ifndef BLE_H
 #define BLE_H
 
@@ -11,7 +10,7 @@ extern "C" {
 void ble_init(void);
 void ble_enable(void);
 void ble_disable(void);
-bool ble_is_enabled(void);   /* <-- 新增 */
+bool ble_is_enabled(void);
 bool ble_is_connected(void);
 
 void ble_update(void);

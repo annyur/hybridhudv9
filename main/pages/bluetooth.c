@@ -3,7 +3,6 @@
 #include "ble.h"
 #include "scan.h"
 #include "conn.h"
-#include "screen.h"
 #include "lvgl.h"
 #include "gui_guider.h"
 #include "esp_log.h"
@@ -17,16 +16,63 @@ static bool s_ble_on = false;
 static int  s_last_count = -1;
 static bool s_connecting = false;
 static bool s_events_bound = false;
+static bool s_wait_scan = false;
 
-/* ===== 前向声明（所有 static 函数）===== */
-static void on_sw_changed(lv_event_t *e);
-static void on_btn_scan(lv_event_t *e);
-static void on_list_item_click(lv_event_t *e);
-static void show_off_prompt(void);
-static void refresh_device_list(void);
-/* ====================================== */
+static void refresh_list(void);
+static void show_off(void);
 
-static void show_off_prompt(void)
+static bool get_sw_state(void)
+{
+    return lv_obj_has_state(guider_ui.bluetooth_bt_sw_enable, LV_STATE_CHECKED);
+}
+
+static void set_sw_state(bool on)
+{
+    if (on) lv_obj_add_state(guider_ui.bluetooth_bt_sw_enable, LV_STATE_CHECKED);
+    else    lv_obj_clear_state(guider_ui.bluetooth_bt_sw_enable, LV_STATE_CHECKED);
+}
+
+static void on_btn_scan(lv_event_t *e)
+{
+    (void)e;
+    if (!s_ble_on) return;
+    scan_stop();
+    scan_start();
+    refresh_list();
+}
+
+static void on_sw_changed(lv_event_t *e)
+{
+    (void)e;
+    bool on = get_sw_state();
+
+    if (on && !s_ble_on) {
+        s_ble_on = true;
+        ble_enable();
+        s_wait_scan = true;
+        refresh_list();
+    }
+    else if (!on && s_ble_on) {
+        s_ble_on = false;
+        s_wait_scan = false;
+        ble_disable();
+        show_off();
+    }
+}
+
+static void on_item_click(lv_event_t *e)
+{
+    if (s_connecting) return;
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    const scan_device_t *dev = scan_get_device(idx);
+    if (!dev) return;
+
+    s_connecting = true;
+    ESP_LOGI("BTUI", "connecting to %s...", dev->name[0] ? dev->name : "unknown");
+    conn_connect(dev->addr, true);
+}
+
+static void show_off(void)
 {
     lv_obj_t *list = guider_ui.bluetooth_bt_list_devices;
     lv_obj_clean(list);
@@ -34,13 +80,19 @@ static void show_off_prompt(void)
     s_last_count = 0;
 }
 
-static void refresh_device_list(void)
+static void refresh_list(void)
 {
     lv_obj_t *list = guider_ui.bluetooth_bt_list_devices;
     lv_obj_clean(list);
 
     int count = scan_get_count();
-    if (count == 0) {
+
+    if (!s_ble_on) {
+        show_off();
+        return;
+    }
+
+    if (scan_is_running() && count == 0) {
         lv_list_add_btn(list, NULL, "Scanning...");
         s_last_count = 0;
         return;
@@ -60,53 +112,14 @@ static void refresh_device_list(void)
         }
 
         lv_obj_t *btn = lv_list_add_btn(list, LV_SYMBOL_BLUETOOTH, buf);
-        lv_obj_add_event_cb(btn, on_list_item_click, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_add_event_cb(btn, on_item_click, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
     s_last_count = count;
-}
-
-static void on_sw_changed(lv_event_t *e)
-{
-    (void)e;
-    lv_obj_t *sw = guider_ui.bluetooth_bt_sw_enable;
-    bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
-
-    if (on && !s_ble_on) {
-        s_ble_on = true;
-        ble_enable();
-        scan_start();
-        refresh_device_list();
-    } else if (!on && s_ble_on) {
-        s_ble_on = false;
-        ble_disable();
-        show_off_prompt();
-    }
-}
-
-static void on_btn_scan(lv_event_t *e)
-{
-    (void)e;
-    if (!s_ble_on) return;
-    scan_stop();
-    scan_start();
-}
-
-static void on_list_item_click(lv_event_t *e)
-{
-    if (s_connecting) return;
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
-    const scan_device_t *dev = scan_get_device(idx);
-    if (!dev) return;
-
-    s_connecting = true;
-    ESP_LOGI("BTUI", "connecting to %s...", dev->name[0] ? dev->name : "unknown");
-    conn_connect(dev->addr, true);
 }
 
 void bluetooth_enter(void)
 {
     s_active = true;
-    s_connecting = false;
 
     if (!s_events_bound) {
         s_events_bound = true;
@@ -116,27 +129,30 @@ void bluetooth_enter(void)
                             LV_EVENT_CLICKED, NULL);
     }
 
-    lv_obj_clear_state(guider_ui.bluetooth_bt_sw_enable, LV_STATE_CHECKED);
-    lv_obj_add_state(guider_ui.bluetooth_bt_sw_enable, LV_STATE_CHECKED);
+    set_sw_state(true);
     s_ble_on = true;
     ble_enable();
-    scan_start();
-    refresh_device_list();
+    s_wait_scan = true;
+    refresh_list();
 }
 
 void bluetooth_exit(void)
 {
     s_active = false;
-    scan_stop();
 }
 
 void bluetooth_update(void)
 {
     if (!s_active) return;
 
+    if (s_wait_scan && ble_is_enabled()) {
+        s_wait_scan = false;
+        scan_start();
+    }
+
     int count = scan_get_count();
     if (count != s_last_count) {
-        refresh_device_list();
+        refresh_list();
     }
 
     if (s_connecting && ble_is_connected()) {
