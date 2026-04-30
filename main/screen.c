@@ -118,11 +118,15 @@ void screen_init(void)
     lv_obj_clear_flag(guider_ui.race_arc_6, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(guider_ui.race_arc_7, LV_OBJ_FLAG_CLICKABLE);
 
-    /* 按钮事件绑定 */
+     /* 按钮事件绑定 */
     lv_obj_add_event_cb(guider_ui.setting_btn_2, on_btn_theme,     LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(guider_ui.setting_btn_3, on_btn_bluetooth, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(guider_ui.bluetooth_btn_back, on_btn_back,  LV_EVENT_CLICKED, NULL);
 
+    /* Bluetooth 界面事件 */
+    lv_obj_add_event_cb(guider_ui.bluetooth_bt_sw_enable, on_sw_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(guider_ui.bluetooth_bt_btn_scan,  on_btn_scan,   LV_EVENT_CLICKED,     NULL);
+    
     s_main = SCREEN_GENERAL;
     s_current = SCREEN_GENERAL;
 }
