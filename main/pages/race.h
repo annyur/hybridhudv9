@@ -1,4 +1,4 @@
-/* race.h — Race 界面业务 */
+/* race.h */
 #ifndef RACE_H
 #define RACE_H
 
@@ -9,6 +9,9 @@ extern "C" {
 void race_enter(void);
 void race_exit(void);
 void race_update(void);
+
+/* 启动 Race 开机动画（Race 为启动界面时由 main.c 调用一次） */
+void race_boot_animation(void);
 
 #ifdef __cplusplus
 }

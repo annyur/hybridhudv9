@@ -259,7 +259,7 @@ void setup_scr_race(lv_ui *ui)
 
     //Write codes race_label_speed_number
     ui->race_label_speed_number = lv_label_create(ui->race);
-    lv_obj_set_pos(ui->race_label_speed_number, 88, 119);
+    lv_obj_set_pos(ui->race_label_speed_number, 88, 122);
     lv_obj_set_size(ui->race_label_speed_number, 289, 71);
     lv_label_set_text(ui->race_label_speed_number, "00");
     lv_label_set_long_mode(ui->race_label_speed_number, LV_LABEL_LONG_WRAP);
@@ -282,7 +282,7 @@ void setup_scr_race(lv_ui *ui)
 
     //Write codes race_label_kw
     ui->race_label_kw = lv_label_create(ui->race);
-    lv_obj_set_pos(ui->race_label_kw, 286, 307);
+    lv_obj_set_pos(ui->race_label_kw, 213, 323);
     lv_obj_set_size(ui->race_label_kw, 40, 18);
     lv_label_set_text(ui->race_label_kw, "kw");
     lv_label_set_long_mode(ui->race_label_kw, LV_LABEL_LONG_WRAP);
@@ -305,7 +305,7 @@ void setup_scr_race(lv_ui *ui)
 
     //Write codes race_label_energy_number
     ui->race_label_energy_number = lv_label_create(ui->race);
-    lv_obj_set_pos(ui->race_label_energy_number, 61, 266);
+    lv_obj_set_pos(ui->race_label_energy_number, 120, 260);
     lv_obj_set_size(ui->race_label_energy_number, 225, 72);
     lv_label_set_text(ui->race_label_energy_number, "-16.8");
     lv_label_set_long_mode(ui->race_label_energy_number, LV_LABEL_LONG_WRAP);
@@ -318,7 +318,7 @@ void setup_scr_race(lv_ui *ui)
     lv_obj_set_style_text_opa(ui->race_label_energy_number, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_text_letter_space(ui->race_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_text_line_space(ui->race_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui->race_label_energy_number, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN|LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(ui->race_label_energy_number, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui->race_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_pad_top(ui->race_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_pad_right(ui->race_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);

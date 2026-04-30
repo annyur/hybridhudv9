@@ -6,7 +6,10 @@
 #include "race.h"
 #include "setting.h"
 #include "bluetooth.h"
-#include "bsp/esp-bsp.h"
+#include "nvs_flash.h"
+
+#define NVS_NAMESPACE "hud"
+#define NVS_KEY_MAIN  "main_scr"
 
 /* GUI Guider 全局 UI 实例定义 */
 lv_ui guider_ui;
@@ -33,6 +36,32 @@ static bool s_inited = false;
 static lv_coord_t s_touch_start_y = 0;
 static bool       s_touch_tracking = false;
 static uint32_t   s_last_switch_ms = 0;
+
+/* ========== NVS 读写主界面状态 ========== */
+static void nvs_save_main(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, NVS_KEY_MAIN, (uint8_t)s_main);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+static void nvs_load_main(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return;
+
+    uint8_t val = SCREEN_GENERAL;
+    nvs_get_u8(h, NVS_KEY_MAIN, &val);
+    nvs_close(h);
+
+    if (val == SCREEN_RACE) {
+        s_main = SCREEN_RACE;
+    } else {
+        s_main = SCREEN_GENERAL;
+    }
+}
 
 /* ========== 内部辅助：递归禁用 Arc/Slider/Switch/Button/Img 的点击 ========== */
 static void disable_interactive_children(lv_obj_t *parent)
@@ -84,9 +113,7 @@ static void apply_screen(screen_id_t id)
     }
 
     if (target) {
-        bsp_display_lock(0);
         lv_screen_load(target);
-        bsp_display_unlock();
     }
 
     /* 进入新界面 */
@@ -100,6 +127,7 @@ static void on_btn_theme(lv_event_t *e)
 {
     (void)e;
     s_main = (s_main == SCREEN_GENERAL) ? SCREEN_RACE : SCREEN_GENERAL;
+    nvs_save_main();
     apply_screen(s_main);
 }
 
@@ -170,12 +198,20 @@ void screen_init(void)
     lv_obj_add_event_cb(guider_ui.setting_btn_3, on_btn_bluetooth, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(guider_ui.bluetooth_btn_back, on_btn_back, LV_EVENT_CLICKED, NULL);
 
-    s_main = SCREEN_GENERAL;
-    s_current = SCREEN_GENERAL;
+    /* 从 NVS 恢复上次的主界面 */
+    nvs_load_main();
 
-    /* 触发 general 的 enter */
-    if (s_screens[SCREEN_GENERAL].enter) {
-        s_screens[SCREEN_GENERAL].enter();
+    /* 如果上次是 Race，需要显式切屏 + 启动开机动画 */
+    if (s_main == SCREEN_RACE) {
+        lv_screen_load(guider_ui.race);
+        race_boot_animation();
+    }
+
+    s_current = s_main;
+
+    /* 触发主界面的 enter */
+    if (s_screens[s_main].enter) {
+        s_screens[s_main].enter();
     }
 }
 

@@ -201,7 +201,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_time = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_time, 173, 46);
     lv_obj_set_size(ui->general_label_time, 120, 32);
-    lv_label_set_text(ui->general_label_time, "00:00");
+    lv_label_set_text(ui->general_label_time, "--:--");
     lv_label_set_long_mode(ui->general_label_time, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_time, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -224,7 +224,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_temp = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_temp, 175, 82);
     lv_obj_set_size(ui->general_label_temp, 100, 32);
-    lv_label_set_text(ui->general_label_temp, "16.5");
+    lv_label_set_text(ui->general_label_temp, "--.-");
     lv_label_set_long_mode(ui->general_label_temp, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_temp, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -295,9 +295,9 @@ void setup_scr_general(lv_ui *ui)
 
     //Write codes general_label_energy_number
     ui->general_label_energy_number = lv_label_create(ui->general);
-    lv_obj_set_pos(ui->general_label_energy_number, 72, 246);
-    lv_obj_set_size(ui->general_label_energy_number, 225, 72);
-    lv_label_set_text(ui->general_label_energy_number, "-16.8");
+    lv_obj_set_pos(ui->general_label_energy_number, 122, 246);
+    lv_obj_set_size(ui->general_label_energy_number, 221, 69);
+    lv_label_set_text(ui->general_label_energy_number, "00.0");
     lv_label_set_long_mode(ui->general_label_energy_number, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_energy_number, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -308,7 +308,7 @@ void setup_scr_general(lv_ui *ui)
     lv_obj_set_style_text_opa(ui->general_label_energy_number, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_text_letter_space(ui->general_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_text_line_space(ui->general_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_text_align(ui->general_label_energy_number, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN|LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(ui->general_label_energy_number, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui->general_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_pad_top(ui->general_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_pad_right(ui->general_label_energy_number, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
@@ -320,7 +320,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_energy_number_2 = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_energy_number_2, 327, 205);
     lv_obj_set_size(ui->general_label_energy_number_2, 100, 32);
-    lv_label_set_text(ui->general_label_energy_number_2, "160");
+    lv_label_set_text(ui->general_label_energy_number_2, "-");
     lv_label_set_long_mode(ui->general_label_energy_number_2, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_energy_number_2, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -343,7 +343,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_oil_number = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_oil_number, 327, 232);
     lv_obj_set_size(ui->general_label_oil_number, 100, 32);
-    lv_label_set_text(ui->general_label_oil_number, "800");
+    lv_label_set_text(ui->general_label_oil_number, "-");
     lv_label_set_long_mode(ui->general_label_oil_number, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_oil_number, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -403,7 +403,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_1 = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_1, 162, 426);
     lv_obj_set_size(ui->general_label_1, 100, 32);
-    lv_label_set_text(ui->general_label_1, "000000");
+    lv_label_set_text(ui->general_label_1, "---");
     lv_label_set_long_mode(ui->general_label_1, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -426,7 +426,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_2 = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_2, 107, 395);
     lv_obj_set_size(ui->general_label_2, 62, 21);
-    lv_label_set_text(ui->general_label_2, "15.6");
+    lv_label_set_text(ui->general_label_2, "--");
     lv_label_set_long_mode(ui->general_label_2, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_2, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -449,7 +449,7 @@ void setup_scr_general(lv_ui *ui)
     ui->general_label_3 = lv_label_create(ui->general);
     lv_obj_set_pos(ui->general_label_3, 229, 395);
     lv_obj_set_size(ui->general_label_3, 55, 22);
-    lv_label_set_text(ui->general_label_3, "5.6\n");
+    lv_label_set_text(ui->general_label_3, "--\n");
     lv_label_set_long_mode(ui->general_label_3, LV_LABEL_LONG_WRAP);
 
     //Write style for general_label_3, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -539,7 +539,7 @@ void setup_scr_general(lv_ui *ui)
 
     //Write codes general_label_unit_kw
     ui->general_label_unit_kw = lv_label_create(ui->general);
-    lv_obj_set_pos(ui->general_label_unit_kw, 297, 287);
+    lv_obj_set_pos(ui->general_label_unit_kw, 312, 286);
     lv_obj_set_size(ui->general_label_unit_kw, 40, 18);
     lv_label_set_text(ui->general_label_unit_kw, "kw");
     lv_label_set_long_mode(ui->general_label_unit_kw, LV_LABEL_LONG_WRAP);

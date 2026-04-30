@@ -1,21 +1,88 @@
-/* race.c — Race 界面业务 */
+/* race.c — Race 界面业务 + OBD 数据绑定 */
 #include "race.h"
+#include "obd.h"
 #include "imu.h"
 #include "ble.h"
+#include "rtc.h"
 #include <lvgl.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include "gui_guider.h"
 
 extern lv_ui guider_ui;
 
 static bool s_active = false;
+static bool s_boot_done = false;
 
-/* G-force 显示参数 */
-#define G_SCALE   60.0f   /* 1g 对应的像素偏移 */
-#define G_MAX     2.0f    /* 最大显示 G 值 */
-#define CENTER_X  233.0f  /* race_img_1 中心 X (73 + 160) */
-#define CENTER_Y  233.0f  /* race_img_1 中心 Y (73 + 160) */
+/* G-force */
+#define G_SCALE   60.0f
+#define G_MAX     2.0f
+#define CENTER_X  233.0f
+#define CENTER_Y  233.0f
+#define MAP_SCREEN_X(ay)   (ay)
+#define MAP_SCREEN_Y(az)   (-(az))
+
+/* 颜色 */
+#define COLOR_GREEN  lv_color_hex(0x00ff24)
+#define COLOR_ORANGE lv_color_hex(0xff6500)
+#define COLOR_RED    lv_color_hex(0xff0000)
+
+static lv_obj_t ** const s_arcs[4] = {
+    &guider_ui.race_arc_4, &guider_ui.race_arc_5,
+    &guider_ui.race_arc_6, &guider_ui.race_arc_7,
+};
+
+static int   s_last_speed = -1;
+static float s_last_kw = -999.0f;
+static int   s_last_time_mm = -1;
+static float s_last_color_kw = -999.0f;
+
+static void set_arcs_color(lv_color_t c)
+{
+    for (int i = 0; i < 4; i++)
+        lv_obj_set_style_arc_color(*s_arcs[i], c, LV_PART_INDICATOR);
+}
+
+static void set_arcs_value(int v)
+{
+    for (int i = 0; i < 4; i++)
+        lv_arc_set_value(*s_arcs[i], v);
+}
+
+static void update_arc_colors(float kw)
+{
+    if (fabsf(kw - s_last_color_kw) < 1.0f) return;
+    s_last_color_kw = kw;
+    lv_color_t c = (kw < 0) ? COLOR_GREEN : (kw > 50) ? COLOR_RED : COLOR_ORANGE;
+    set_arcs_color(c);
+}
+
+/* ========== G 点呼吸动画（手动驱动，不创建 lv_anim） ========== */
+static void gpoint_breath_step(int tick)
+{
+    /* tick: 0~60，周期 ~960ms @ 60fps → 实际由 race_update 帧率决定 */
+    int phase = tick % 60;
+    int opa;
+    if (phase < 20) {
+        /* 0~20: 淡入 0→255 */
+        opa = (phase * 255) / 20;
+    } else if (phase < 40) {
+        /* 20~40: 淡出 255→0 */
+        opa = 255 - ((phase - 20) * 255) / 20;
+    } else {
+        /* 40~60: 等待 */
+        opa = 0;
+    }
+    lv_obj_set_style_opa(guider_ui.race_label_G_piont, opa, LV_PART_MAIN | LV_STATE_DEFAULT);
+}
+
+/* 开机动画标记 */
+void race_boot_animation(void)
+{
+    if (s_boot_done) return;
+    s_boot_done = true;
+}
 
 void race_enter(void)
 {
@@ -32,52 +99,130 @@ void race_update(void)
 {
     if (!s_active) return;
 
-    float ax, ay, az;
-    if (!hud_imu_get_accel(&ax, &ay, &az)) return;
+    /* ===================== 开机动画（手动分步，只播放一次） ===================== */
+    static uint32_t s_boot_start = 0;
+    if (s_boot_done && s_boot_start == 0) {
+        s_boot_start = lv_tick_get();
+    }
+    if (s_boot_start > 0 && s_boot_start != 0xFFFFFFFF) {
+        uint32_t elapsed = lv_tick_get() - s_boot_start;
+        if (elapsed < 500) {
+            /* 0~500ms: 等待 */
+            return;
+        } else if (elapsed < 1500) {
+            /* 500~1500ms: sweep up */
+            int v = ((elapsed - 500) * 200) / 1000;
+            if (v > 200) v = 200;
+            set_arcs_value(v);
+            return;
+        } else if (elapsed < 2500) {
+            /* 1500~2500ms: sweep down */
+            int v = 200 - ((elapsed - 1500) * 200) / 1000;
+            if (v < 0) v = 0;
+            set_arcs_value(v);
+            return;
+        } else {
+            /* 动画结束 */
+            set_arcs_value(0);
+            s_boot_start = 0xFFFFFFFF;
+        }
+    }
 
-    /* 计算净 G 值（假设校准后水平放置时 az ≈ 1g，此处简化处理） */
-    /* 若 IMU 安装方向不同，请调整 ax/ay/az 的符号和映射 */
-    float g_lat  = ax;          /* 横向 G（左右）*/
-    float g_long = ay;          /* 纵向 G（前后）*/
-    float g_total = sqrtf(ax * ax + ay * ay + az * az);
+    const obd_data_t *d = obd_get_data();
+    char buf[32];
 
-    /* 限制最大 G 值 */
-    if (g_lat > G_MAX)  g_lat = G_MAX;
-    if (g_lat < -G_MAX) g_lat = -G_MAX;
-    if (g_long > G_MAX) g_long = G_MAX;
-    if (g_long < -G_MAX) g_long = -G_MAX;
+    /* ===================== 蓝牙未连接：arc=0，G点呼吸 ===================== */
+    if (!ble_is_connected()) {
+        static int s_breath_tick = 0;
+        s_breath_tick++;
+        gpoint_breath_step(s_breath_tick);
 
-    /* ========== 更新 G 点位置 ========== */
-    /* race_label_G_piont 尺寸 20x20，圆角 20 */
-    /* 中心位置 = CENTER + g * G_SCALE */
-    /* 注意：屏幕 Y 向下为正，若向前加速 G 点应向下（后方）移动，请根据实际安装调整符号 */
-    float px = CENTER_X + g_lat * G_SCALE - 10.0f;   /* -10 是半宽补偿 */
-    float py = CENTER_Y + g_long * G_SCALE - 10.0f;  /* 纵向：ay 正 = 向前加速 = G 点后移 */
+        /* label 仍然更新 */
+        if (d) {
+            if (d->speed != s_last_speed) {
+                s_last_speed = d->speed;
+                snprintf(buf, sizeof(buf), "%02d", d->speed);
+                lv_label_set_text(guider_ui.race_label_speed_number, buf);
+            }
+            if (fabsf(d->power_kw - s_last_kw) > 0.1f) {
+                s_last_kw = d->power_kw;
+                snprintf(buf, sizeof(buf), "%.1f", d->power_kw);
+                lv_label_set_text(guider_ui.race_label_energy_number, buf);
+            }
+            update_arc_colors(d->power_kw);
+        }
+        /* 跳过 G-force IMU 和 arc 更新 */
+        goto update_time;
+    }
 
-    /* 限制在背景图范围内（留 10px 边距） */
-    if (px < 83.0f)  px = 83.0f;   /* 73 + 10 */
-    if (px > 383.0f) px = 383.0f;  /* 73 + 320 - 10 */
-    if (py < 83.0f)  py = 83.0f;
-    if (py > 383.0f) py = 383.0f;
+    /* ===================== 蓝牙已连接：恢复正常 ===================== */
+    /* 恢复 G 点不透明 */
+    lv_obj_set_style_opa(guider_ui.race_label_G_piont, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
+    /* ---------- G-force（IMU） ---------- */
+    {
+        float ax, ay, az;
+        if (hud_imu_get_accel(&ax, &ay, &az)) {
+            float g_x = MAP_SCREEN_X(ay) / 9.8f;
+            float g_y = MAP_SCREEN_Y(az) / 9.8f;
+            if (g_x > G_MAX)  g_x = G_MAX;
+            if (g_x < -G_MAX) g_x = -G_MAX;
+            if (g_y > G_MAX)  g_y = G_MAX;
+            if (g_y < -G_MAX) g_y = -G_MAX;
 
-    /* ========== 更新四周 Label ========== */
-    char buf[16];
+            float px = CENTER_X + g_x * G_SCALE - 10.0f;
+            float py = CENTER_Y + g_y * G_SCALE - 10.0f;
+            if (px < 83.0f) px = 83.0f;
+            if (px > 383.0f) px = 383.0f;
+            if (py < 83.0f) py = 83.0f;
+            if (py > 383.0f) py = 383.0f;
 
-    /* Top — 正向纵向（加速） */
-    snprintf(buf, sizeof(buf), "%.2f", g_long > 0 ? g_long : 0.0f);
-    lv_label_set_text(guider_ui.race_label_top, buf);
+            lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
 
-    /* Down — 负向纵向（刹车） */
-    snprintf(buf, sizeof(buf), "%.2f", g_long < 0 ? -g_long : 0.0f);
-    lv_label_set_text(guider_ui.race_label_down, buf);
+            snprintf(buf, sizeof(buf), "%.2f", g_y < 0 ? -g_y : 0.0f);
+            lv_label_set_text(guider_ui.race_label_top, buf);
+            snprintf(buf, sizeof(buf), "%.2f", g_y > 0 ? g_y : 0.0f);
+            lv_label_set_text(guider_ui.race_label_down, buf);
+            snprintf(buf, sizeof(buf), "%.2f", g_x < 0 ? -g_x : 0.0f);
+            lv_label_set_text(guider_ui.race_label_left, buf);
+            snprintf(buf, sizeof(buf), "%.2f", g_x > 0 ? g_x : 0.0f);
+            lv_label_set_text(guider_ui.race_label_right, buf);
+        }
+    }
 
-    /* Left — 负向横向（左转） */
-    snprintf(buf, sizeof(buf), "%.2f", g_lat < 0 ? -g_lat : 0.0f);
-    lv_label_set_text(guider_ui.race_label_left, buf);
+    /* ---------- OBD 数据 ---------- */
+    if (!d) goto update_time;
 
-    /* Right — 正向横向（右转） */
-    snprintf(buf, sizeof(buf), "%.2f", g_lat > 0 ? g_lat : 0.0f);
-    lv_label_set_text(guider_ui.race_label_right, buf);
+    update_arc_colors(d->power_kw);
+
+    if (d->speed != s_last_speed) {
+        s_last_speed = d->speed;
+        set_arcs_value(d->speed);
+        snprintf(buf, sizeof(buf), "%02d", d->speed);
+        lv_label_set_text(guider_ui.race_label_speed_number, buf);
+    }
+    if (fabsf(d->power_kw - s_last_kw) > 0.1f) {
+        s_last_kw = d->power_kw;
+        snprintf(buf, sizeof(buf), "%.1f", d->power_kw);
+        lv_label_set_text(guider_ui.race_label_energy_number, buf);
+    }
+
+update_time:
+    /* ---------- RTC 时间 ---------- */
+    {
+        struct tm ti;
+        hud_rtc_get_time(&ti);
+        int now_mm = ti.tm_hour * 60 + ti.tm_min;
+        if (now_mm != s_last_time_mm) {
+            s_last_time_mm = now_mm;
+            snprintf(buf, sizeof(buf), "%02d:%02d", ti.tm_hour, ti.tm_min);
+            lv_label_set_text(guider_ui.race_label_time, buf);
+        }
+    }
+
+    static bool s_labels_inited = false;
+    if (!s_labels_inited) {
+        s_labels_inited = true;
+        lv_label_set_text(guider_ui.race_label_kw, "kw");
+    }
 }
