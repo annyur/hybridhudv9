@@ -2918,7 +2918,7 @@
 					"x": 50,
 					"y": 50,
 					"color_format": "RGB565A8",
-					"compress_method": "RLE",
+					"compress_method": "NONE",
 					"dither_algorithm": "",
 					"style": [
 						{
@@ -6858,7 +6858,7 @@
 						"default_style": false,
 						"img_path": "import\\image\\bg.png",
 						"color_format": "RGB565A8",
-						"compress_method": "RLE",
+						"compress_method": "NONE",
 						"dither_algorithm": "",
 						"rotate": 0,
 						"pivot": "50,50",

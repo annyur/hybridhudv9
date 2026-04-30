@@ -33,7 +33,7 @@ void setup_scr_general(lv_ui *ui)
     lv_obj_set_pos(ui->general_img_1, 83, 83);
     lv_obj_set_size(ui->general_img_1, 300, 300);
     lv_obj_add_flag(ui->general_img_1, LV_OBJ_FLAG_CLICKABLE);
-    lv_image_set_src(ui->general_img_1, &_bg_RGB565A8_300x300_RLE);
+    lv_image_set_src(ui->general_img_1, &_bg_RGB565A8_300x300);
     lv_image_set_pivot(ui->general_img_1, 50,50);
     lv_image_set_rotation(ui->general_img_1, 0);
 

@@ -114,7 +114,7 @@ void setup_scr_general(lv_ui *ui);
 void setup_scr_race(lv_ui *ui);
 void setup_scr_setting(lv_ui *ui);
 void setup_scr_bluetooth(lv_ui *ui);
-LV_IMAGE_DECLARE(_bg_RGB565A8_300x300_RLE);
+LV_IMAGE_DECLARE(_bg_RGB565A8_300x300);
 LV_IMAGE_DECLARE(_tempunit_RGB565A8_20x19);
 LV_IMAGE_DECLARE(_Gforce_RGB565A8_320x320);
 LV_IMAGE_DECLARE(_o_RGB565A8_20x18);
