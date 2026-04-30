@@ -23,7 +23,6 @@ static uint16_t s_cccd_handle = 0;
 static uint8_t s_target_addr[6];
 static uint8_t s_target_addr_type;
 
-/* OBD ELM327 常见 UUID */
 static const ble_uuid16_t svc_uuid_obd   = BLE_UUID16_INIT(0xFFF0);
 static const ble_uuid16_t chr_uuid_write = BLE_UUID16_INIT(0xFFF1);
 static const ble_uuid16_t chr_uuid_notify= BLE_UUID16_INIT(0xFFF2);
@@ -75,7 +74,7 @@ void conn_connect(const uint8_t *addr, bool public)
         .itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX,
         .latency = 0,
         .supervision_timeout = 400,
-        .min_ce_len = 0,   /* 旧版宏不存在，直接填 0 */
+        .min_ce_len = 0,
         .max_ce_len = 0,
     };
 
@@ -144,10 +143,8 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
         return 0;
     }
     case BLE_GAP_EVENT_NOTIFY_RX: {
-        /* v5.5 直接用 event->notify_rx 的字段 */
-        if (event->notify_rx.status != 0) return 0;
-        if (!event->notify_rx.indication && s_notify_handle &&
-            event->notify_rx.attr_handle == s_notify_handle) {
+        /* v5.5: 直接取 attr_handle 和 om，不检查 status/indication */
+        if (s_notify_handle && event->notify_rx.attr_handle == s_notify_handle) {
             int len = OS_MBUF_PKTLEN(event->notify_rx.om);
             if (len > 0 && len < RX_BUF_SIZE) {
                 os_mbuf_copydata(event->notify_rx.om, 0, len, s_rx_buf);
