@@ -1,4 +1,4 @@
-/* screen.c — 界面路由 + 坐标手势导航 */
+/* screen.c — 界面路由 + 手势导航（适配任意旋转方向） */
 #include "screen.h"
 #include "lvgl.h"
 #include "gui_guider.h"
@@ -33,6 +33,7 @@ static screen_id_t s_main    = SCREEN_GENERAL;
 static bool s_inited = false;
 
 /* 手势跟踪 */
+static lv_coord_t s_touch_start_x = 0;
 static lv_coord_t s_touch_start_y = 0;
 static bool       s_touch_tracking = false;
 static uint32_t   s_last_switch_ms = 0;
@@ -157,6 +158,7 @@ static void gesture_poll(void)
 
     if (state == LV_INDEV_STATE_PRESSED && !s_touch_tracking) {
         s_touch_tracking = true;
+        s_touch_start_x = p.x;
         s_touch_start_y = p.y;
     }
     else if (state == LV_INDEV_STATE_RELEASED && s_touch_tracking) {
@@ -164,13 +166,13 @@ static void gesture_poll(void)
         lv_coord_t dy = p.y - s_touch_start_y;
 
         if (s_current == SCREEN_GENERAL || s_current == SCREEN_RACE) {
-            /* 顶部下滑：起点在顶部 80px，向下划超 60px */
+            /* 从屏幕顶部区域向下划超过 60px → 进 Setting */
             if (s_touch_start_y < 80 && dy > 60) {
                 apply_screen(SCREEN_SETTING);
             }
         }
         else if (s_current == SCREEN_SETTING) {
-            /* 底部上划：起点在底部 80px（386+），向上划超 60px */
+            /* 从屏幕底部区域向上划超过 60px → 回主界面 */
             if (s_touch_start_y > 386 && dy < -60) {
                 apply_screen(s_main);
             }
@@ -201,10 +203,9 @@ void screen_init(void)
     /* 从 NVS 恢复上次的主界面 */
     nvs_load_main();
 
-    /* 如果上次是 Race，需要显式切屏 + 启动开机动画 */
+    /* 如果上次是 Race，需要显式切屏 */
     if (s_main == SCREEN_RACE) {
         lv_screen_load(guider_ui.race);
-        race_boot_animation();
     }
 
     s_current = s_main;

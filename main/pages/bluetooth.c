@@ -190,6 +190,9 @@ void bluetooth_update(void)
                 }
                 set_status_label("Connected");
                 ESP_LOGI(TAG, "connected, idx=%d", s_conn_idx);
+                /* 启动 OBD 轮询 */
+                extern void obd_start(void);
+                obd_start();
             } else {
                 s_conn_idx = -1;
                 ESP_LOGI(TAG, "disconnected");
