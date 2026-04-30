@@ -8,6 +8,7 @@
 #include "screen.h"
 #include "imu.h"
 #include "rtc.h"
+#include "ble.h"   /* <-- 加这行 */
 
 static void sensor_task(void *pv)
 {
@@ -22,9 +23,14 @@ static void sensor_task(void *pv)
 void app_main(void)
 {
     bsp_display_start();
-    bsp_display_backlight_on();
+    bsp_display_backlight_off();
 
+    ble_init();
+
+    bsp_display_lock(0);
     screen_init();
+    bsp_display_unlock();
+    bsp_display_backlight_on();
 
     xTaskCreatePinnedToCore(sensor_task, "SENS", 4096, NULL, 3, NULL, 1);
 

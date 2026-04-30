@@ -1,4 +1,4 @@
-/* ble.h — BLE 连接 */
+/* ble.h — BLE 连接主控 */
 #ifndef BLE_H
 #define BLE_H
 
@@ -9,12 +9,13 @@ extern "C" {
 #include <stdbool.h>
 
 void ble_init(void);
-void ble_update(void);
 void ble_enable(void);
 void ble_disable(void);
+bool ble_is_enabled(void);   /* <-- 新增 */
 bool ble_is_connected(void);
 
-/* 原始数据接口（供 ELM327 / OBD 使用） */
+void ble_update(void);
+
 bool ble_write(const char *data);
 bool ble_rx_ready(void);
 const char *ble_rx_buf(void);

@@ -52,7 +52,7 @@ void ble_disable(void)
     ESP_LOGI(TAG, "disabled");
 }
 
-bool ble_is_connected(void)
+bool ble_is_enabled(void) { return s_enabled; }   /* <-- 新增 */
 {
     return s_enabled && conn_is_connected();
 }
