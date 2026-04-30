@@ -13,6 +13,7 @@
 #include "ble.h"
 #include "obd.h"
 #include "general.h"
+#include "bluetooth.h"
 
 static void sensor_task(void *pv)
 {
@@ -50,7 +51,8 @@ void app_main(void)
     while (1) {
         bsp_display_lock(-1);
         screen_update();
+        bluetooth_auto_reconnect();
         bsp_display_unlock();
-        vTaskDelay(pdMS_TO_TICKS(50));  /* 匹配 LVGL 30Hz，降低 CPU 占用 */
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

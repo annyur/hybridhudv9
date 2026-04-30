@@ -67,6 +67,30 @@ static void nvs_load_last_addr(void)
     }
 }
 
+/* ========== 后台自动回连（main.c 循环调用，无需进入界面） ========== */
+void bluetooth_auto_reconnect(void)
+{
+    static bool s_done = false;
+    static int  s_tick = 0;
+
+    if (s_done) return;           /* 只尝试一次 */
+    if (!ble_is_enabled()) return;
+
+    s_tick++;
+    if (s_tick < 150) return;     /* ~3s 等 NimBLE sync */
+
+    /* 加载上次地址 */
+    if (!s_has_last) {
+        nvs_load_last_addr();
+    }
+
+    if (s_has_last && !ble_is_connected()) {
+        ESP_LOGI(TAG, "auto reconnect last device...");
+        conn_connect(s_last_addr, BLE_ADDR_PUBLIC);
+    }
+    s_done = true;
+}
+
 /* ========== 公共接口 ========== */
 
 void bluetooth_enter(void)
@@ -169,19 +193,10 @@ void bluetooth_update(void)
             } else {
                 s_conn_idx = -1;
                 ESP_LOGI(TAG, "disconnected");
-                /* 断开且有上次记录 → 延迟回连 */
-                if (s_has_last) {
-                    ESP_LOGI(TAG, "auto reconnect in 2s...");
-                }
             }
             refresh_list();
         }
 
-        /* 断开状态且有上次记录 → 自动回连 */
-        if (!now_connected && s_has_last && s_enter_tick > 150 && (s_enter_tick % 100) == 0) {
-            ESP_LOGI(TAG, "auto reconnecting last device...");
-            conn_connect(s_last_addr, BLE_ADDR_PUBLIC);
-        }
     }
 }
 

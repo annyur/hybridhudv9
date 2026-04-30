@@ -20,8 +20,8 @@ static bool s_boot_done = false;
 #define G_MAX     2.0f
 #define CENTER_X  233.0f
 #define CENTER_Y  233.0f
-#define MAP_SCREEN_X(ay)   (ay)
-#define MAP_SCREEN_Y(az)   (-(az))
+#define MAP_SCREEN_X(ay)   (-(ay))    /* 左右：取反 */
+#define MAP_SCREEN_Y(az)   (az)       /* 上下：取反 */
 
 /* 颜色 */
 #define COLOR_GREEN  lv_color_hex(0x00ff24)
