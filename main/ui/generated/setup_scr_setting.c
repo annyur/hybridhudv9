@@ -53,8 +53,8 @@ void setup_scr_setting(lv_ui *ui)
 
     //Write codes setting_btn_2
     ui->setting_btn_2 = lv_button_create(ui->setting);
-    lv_obj_set_pos(ui->setting_btn_2, 73, 77);
-    lv_obj_set_size(ui->setting_btn_2, 150, 80);
+    lv_obj_set_pos(ui->setting_btn_2, 88, 88);
+    lv_obj_set_size(ui->setting_btn_2, 130, 60);
     ui->setting_btn_2_label = lv_label_create(ui->setting_btn_2);
     lv_label_set_text(ui->setting_btn_2_label, "Theme");
     lv_label_set_long_mode(ui->setting_btn_2_label, LV_LABEL_LONG_WRAP);
@@ -76,8 +76,8 @@ void setup_scr_setting(lv_ui *ui)
 
     //Write codes setting_btn_3
     ui->setting_btn_3 = lv_button_create(ui->setting);
-    lv_obj_set_pos(ui->setting_btn_3, 247, 77);
-    lv_obj_set_size(ui->setting_btn_3, 150, 80);
+    lv_obj_set_pos(ui->setting_btn_3, 244, 88);
+    lv_obj_set_size(ui->setting_btn_3, 130, 60);
     ui->setting_btn_3_label = lv_label_create(ui->setting_btn_3);
     lv_label_set_text(ui->setting_btn_3_label, "Bluetooth");
     lv_label_set_long_mode(ui->setting_btn_3_label, LV_LABEL_LONG_WRAP);
@@ -99,8 +99,8 @@ void setup_scr_setting(lv_ui *ui)
 
     //Write codes setting_cont_1
     ui->setting_cont_1 = lv_obj_create(ui->setting);
-    lv_obj_set_pos(ui->setting_cont_1, 68, 173);
-    lv_obj_set_size(ui->setting_cont_1, 329, 221);
+    lv_obj_set_pos(ui->setting_cont_1, 70, 167);
+    lv_obj_set_size(ui->setting_cont_1, 326, 229);
     lv_obj_set_scrollbar_mode(ui->setting_cont_1, LV_SCROLLBAR_MODE_OFF);
 
     //Write style for setting_cont_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.

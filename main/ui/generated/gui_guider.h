@@ -26,6 +26,7 @@ typedef struct
 	lv_obj_t *general_arc_oil;
 	lv_obj_t *general_arc_energy;
 	lv_obj_t *general_cont_1;
+	lv_obj_t *general_cont_2;
 	lv_obj_t *general_label_rpm_number;
 	lv_obj_t *general_label_time;
 	lv_obj_t *general_label_temp;
@@ -64,6 +65,7 @@ typedef struct
 	lv_obj_t *race_img_5;
 	lv_obj_t *race_label_1;
 	lv_obj_t *race_label_2;
+	lv_obj_t *race_label_G_piont;
 	lv_obj_t *setting;
 	bool setting_del;
 	lv_obj_t *setting_label_1;
@@ -126,8 +128,8 @@ LV_FONT_DECLARE(lv_font_montserratMedium_72)
 LV_FONT_DECLARE(lv_font_montserratMedium_68)
 LV_FONT_DECLARE(lv_font_montserratMedium_20)
 LV_FONT_DECLARE(lv_font_montserratMedium_18)
-LV_FONT_DECLARE(lv_font_montserratMedium_36)
 LV_FONT_DECLARE(lv_font_montserratMedium_16)
+LV_FONT_DECLARE(lv_font_montserratMedium_36)
 
 
 #ifdef __cplusplus
