@@ -15,6 +15,9 @@ void conn_connect(const uint8_t *addr, bool public);
 void conn_disconnect(void);
 bool conn_is_connected(void);
 
+/* 获取当前已连接设备的地址（未连接返回 NULL） */
+const uint8_t *conn_get_connected_addr(void);
+
 /* 原始数据接口（供 ELM327 / OBD / ble.c 使用） */
 bool conn_write(const char *data, int len);
 bool conn_rx_ready(void);

@@ -2,13 +2,14 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "nvs_flash.h"
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 
 #include "screen.h"
 #include "imu.h"
 #include "rtc.h"
-#include "ble.h"   /* <-- 加这行 */
+#include "ble.h"
 
 static void sensor_task(void *pv)
 {
@@ -22,6 +23,14 @@ static void sensor_task(void *pv)
 
 void app_main(void)
 {
+    /* NVS 初始化（WiFi/BT 需要） */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
     bsp_display_start();
     bsp_display_backlight_off();
 

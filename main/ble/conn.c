@@ -53,6 +53,11 @@ void conn_init(void)
 
 bool conn_is_connected(void) { return s_connected; }
 
+const uint8_t *conn_get_connected_addr(void)
+{
+    return s_connected ? s_target_addr : NULL;
+}
+
 void conn_disconnect(void)
 {
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
