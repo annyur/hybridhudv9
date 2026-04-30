@@ -1,5 +1,2 @@
-/* sd.c — SD 卡 */
+/* sd.c — SD 卡占位 */
 #include "sd.h"
-
-void sd_init(void) {}
-bool sd_is_mounted(void) { return false; }

@@ -40,17 +40,6 @@ void app_main(void)
     /* 启动显示系统 */
     bsp_display_start();
 
-    /* 显示顺时针旋转 90° */
-    lv_display_t *disp = lv_display_get_default();
-    if (disp) {
-        ESP_LOGI(TAG, "before rotation: %d", lv_display_get_rotation(disp));
-        lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_90);
-        ESP_LOGI(TAG, "after rotation: %d", lv_display_get_rotation(disp));
-        ESP_LOGI(TAG, "hor_res=%d, ver_res=%d", lv_display_get_horizontal_resolution(disp), lv_display_get_vertical_resolution(disp));
-    } else {
-        ESP_LOGE(TAG, "no default display found!");
-    }
-
     /* 业务初始化 */
     ble_init();
     obd_init();

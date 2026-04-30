@@ -53,7 +53,7 @@ void general_boot_animation(void)
     lv_anim_set_time(&a, 1000);
     lv_anim_set_playback_time(&a, 1000);
     lv_anim_set_playback_delay(&a, 0);
-    lv_anim_set_delay(&a, 500);   /* 延迟0.75秒 */
+    lv_anim_set_delay(&a, 750);   /* 延迟0.75秒 */
     lv_anim_start(&a);
 
     /* Speed arc：延迟0.5秒 → 0 → 200 → 0，1000ms up + 1000ms down */
@@ -64,7 +64,7 @@ void general_boot_animation(void)
     lv_anim_set_time(&a, 1000);
     lv_anim_set_playback_time(&a, 1000);
     lv_anim_set_playback_delay(&a, 0);
-    lv_anim_set_delay(&a, 750);    /* 延迟0.5秒 */
+    lv_anim_set_delay(&a, 500);    /* 延迟0.5秒 */
     lv_anim_start(&a);
 }
 

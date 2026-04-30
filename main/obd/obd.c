@@ -1,292 +1,224 @@
-/* obd.c — OBD-II PID 轮询 + 数据解析 */
+/* obd.c — OBD-II PID 轮询（参考 Car Scanner 日志优化） */
 #include "obd.h"
 #include "elm.h"
+#include "ecu.h"
 #include "ble.h"
 #include "esp_log.h"
 #include "lvgl.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 
 static const char *TAG = "OBD";
-
 static obd_data_t s_data = {0};
 static bool s_running = false;
 
-/* ===== 状态机 ===== */
+/* 状态机 */
 typedef enum {
-    OBD_IDLE = 0,
-    OBD_INIT_ATZ,       /* ATZ 复位 */
-    OBD_INIT_ATE0,      /* ATE0 关闭回显 */
-    OBD_INIT_ATL1,      /* ATL1 长消息 */
-    OBD_INIT_ATSP0,     /* ATSP0 自动协议 */
-    OBD_REQ_RPM,        /* 010C 转速 */
-    OBD_REQ_SPEED,      /* 010D 车速 */
-    OBD_REQ_COOLANT,    /* 0105 冷却液温度 */
-    OBD_REQ_OIL,        /* 015C 机油温度 */
-    OBD_REQ_SOC,        /* 015B 电池 SOC */
-    OBD_REQ_VOLTAGE,    /* 0142 控制模块电压 */
-    OBD_REQ_THROTTLE,   /* 0111 节气门位置 */
-    OBD_REQ_POWER,      /* 通过电流×电压估算 */
-    OBD_COUNT
-} obd_state_t;
+    ST_IDLE = 0,
+    ST_INIT_ATZ,       /* 复位 ELM327（Car Scanner 先 ATZ） */
+    ST_INIT_ATE0,
+    ST_INIT_ATL1,
+    ST_INIT_ATS1,
+    ST_INIT_ATH1,
+    ST_INIT_ATSP6,     /* CAN 11bit 500k */
+    ST_INIT_ATSH7E0,   /* HPCM 头部 */
+    ST_INIT_ATS0,      /* 关闭空格 */
+    /* PID 循环 */
+    ST_PID_RPM, ST_PID_SPEED, ST_PID_COOLANT, ST_PID_VOLTAGE,
+    ST_PID_THROTTLE, ST_PID_ODOMETER, ST_PID_SOC, ST_PID_DIST,
+    ST_COUNT
+} st_t;
 
-static obd_state_t s_state = OBD_IDLE;
-static uint32_t s_last_ms = 0;
-static uint32_t s_rx_wait = 0;
-static int s_init_retry = 0;
+static st_t s_st = ST_IDLE;
+static uint32_t s_wait = 0;
+static int s_retry = 0;
+static int s_tx_fail = 0;
+static bool s_atz_ready = false;   /* 收到 > 提示符 */
 
-/* 各 PID 的命令和响应超时(ms) */
-#define CMD_TIMEOUT     500
-#define INIT_TIMEOUT    1000
-#define POLL_INTERVAL   200   /* 每个 PID 间隔 200ms */
-
-/* ===== 工具：发送命令（带\r） ===== */
-static bool send_cmd(const char *cmd)
+/* 解析 HEX */
+static int parse_hex(const char *resp, uint8_t *out, int max)
 {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%s\r", cmd);
-    ESP_LOGI(TAG, "TX: %s", cmd);
-    return elm_tx(buf);
-}
-
-/* ===== 工具：解析十六进制字节 ===== */
-static int hex_byte(const char *p)
-{
-    char tmp[3] = {p[0], p[1], 0};
-    return (int)strtol(tmp, NULL, 16);
-}
-
-/* ===== 工具：从响应字符串提取十六进制数据 ===== */
-static int parse_response(const char *resp, uint8_t *out, int max_len)
-{
-    int cnt = 0;
+    int n = 0;
     const char *p = resp;
-    while (*p && cnt < max_len) {
-        /* 跳过空格、>、回车等非十六进制字符 */
+    while (*p && n < max) {
         if ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f')) {
             if (p[1] && ((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'F') || (*p >= 'a' && *p <= 'f'))) {
-                out[cnt++] = (uint8_t)hex_byte(p);
-                p += 2;
-                continue;
+                char tmp[3] = {p[0], p[1], 0};
+                out[n++] = (uint8_t)strtol(tmp, NULL, 16);
+                p += 2; continue;
             }
         }
         p++;
     }
-    return cnt;
+    return n;
 }
 
-/* ===== 工具：检查响应是否包含 "NO DATA" / "ERROR" ===== */
-static bool is_error_response(const char *resp)
+static bool tx(const char *cmd)
 {
-    return (strstr(resp, "NO DATA") || strstr(resp, "ERROR") ||
-            strstr(resp, "UNABLE") || strstr(resp, "?"));
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%s\r", cmd);
+    bool ok = elm_tx(buf);
+    if (ok) {
+        ESP_LOGI(TAG, "TX: %s", cmd);
+        s_tx_fail = 0;
+    } else {
+        s_tx_fail++;
+        if (s_tx_fail <= 3) ESP_LOGW(TAG, "TX fail %d: %s", s_tx_fail, cmd);
+    }
+    return ok;
 }
 
-/* ===== 解析各 PID ===== */
-static void parse_pid_rpm(const uint8_t *d, int len)
+static void parse_std(const char *resp)
 {
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x0C) {
-        s_data.rpm = ((d[2] * 256) + d[3]) / 4;
-        ESP_LOGI(TAG, "RPM=%d", s_data.rpm);
+    const char *p = resp;
+
+    /* 跳过紧凑 CAN 头部：7E8xx / 7E0xx / 7E4xx（3字符 ID + 2字符 DLC） */
+    if ((strncmp(p, "7E8", 3) == 0 || strncmp(p, "7E0", 3) == 0 ||
+         strncmp(p, "7E4", 3) == 0) && strlen(p) >= 5) {
+        p += 5; /* 跳过 ID + DLC */
+    }
+
+    uint8_t d[24];
+    int n = parse_hex(p, d, sizeof(d));
+    if (n < 2) return;
+
+    uint8_t mode = d[0];
+    uint8_t pid  = d[1];
+    if (mode != 0x41) return;
+
+    switch (pid) {
+    case 0x0C:  if (n >= 4) { s_data.rpm = ((d[2]*256)+d[3])/4; } break;
+    case 0x0D:  if (n >= 3) { s_data.speed = d[2]; } break;
+    case 0x05:  if (n >= 3) { s_data.coolant = d[2]-40; } break;
+    case 0x42:  if (n >= 4) { s_data.batt_v = ((d[2]*256)+d[3])*0.001f; } break;
+    case 0x11:  if (n >= 3) { s_data.throttle = d[2]*100/255; } break;
+    case 0xA6:  if (n >= 6) { s_data.odometer = ((d[2]*16777216.0f)+(d[3]*65536.0f)+(d[4]*256.0f)+d[5])/10.0f; } break;
+    case 0x5B:  if (n >= 3) { s_data.epa_soc = d[2]*100.0f/255.0f; } break;
+    case 0x31:  if (n >= 4) { s_data.dist = (d[2]*256)+d[3]; } break;
     }
 }
 
-static void parse_pid_speed(const uint8_t *d, int len)
+static bool is_prompt(const char *resp)
 {
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x0D) {
-        s_data.speed = d[2];
-        ESP_LOGI(TAG, "Speed=%d", s_data.speed);
-    }
+    /* ELM327 提示符 > 表示就绪 */
+    return (resp[0] == '>' && resp[1] == '\0');
 }
 
-static void parse_pid_coolant(const uint8_t *d, int len)
+static bool is_ok(const char *resp)
 {
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x05) {
-        s_data.coolant = d[2] - 40;
-        ESP_LOGI(TAG, "Coolant=%d", s_data.coolant);
-    }
+    return (strcasecmp(resp, "OK") == 0);
 }
 
-static void parse_pid_oil(const uint8_t *d, int len)
-{
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x5C) {
-        s_data.oil = d[2] - 40;
-        ESP_LOGI(TAG, "Oil=%d", s_data.oil);
-    }
-}
-
-static void parse_pid_soc(const uint8_t *d, int len)
-{
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x5B) {
-        s_data.epa_soc = d[2] / 2.55f;  /* 0~100% */
-        ESP_LOGI(TAG, "SOC=%.1f", s_data.epa_soc);
-    }
-}
-
-static void parse_pid_voltage(const uint8_t *d, int len)
-{
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x42) {
-        s_data.batt_v = d[2] / 10.0f;
-        ESP_LOGI(TAG, "Voltage=%.1f", s_data.batt_v);
-    }
-}
-
-static void parse_pid_throttle(const uint8_t *d, int len)
-{
-    if (len >= 2 && d[0] == 0x41 && d[1] == 0x11) {
-        s_data.throttle = d[2] * 100 / 255;
-        ESP_LOGI(TAG, "Throttle=%d", s_data.throttle);
-    }
-}
-
-/* ===== 状态处理 ===== */
 static void handle_rx(const char *resp)
 {
-    ESP_LOGI(TAG, "RX: %s", resp);
-
-    uint8_t data[16];
-    int dlen = parse_response(resp, data, sizeof(data));
-
-    if (is_error_response(resp)) {
-        ESP_LOGW(TAG, "PID error, skip");
+    ESP_LOGI(TAG, "RX[%d]: '%s'", s_st, resp);
+    if (strstr(resp, "NO DATA") || strstr(resp, "ERROR") || strstr(resp, "UNABLE") || strstr(resp, "?")) {
         return;
     }
-
-    switch (s_state) {
-    case OBD_INIT_ATZ:
-    case OBD_INIT_ATE0:
-    case OBD_INIT_ATL1:
-    case OBD_INIT_ATSP0:
-        /* 初始化命令只需确认收到响应 */
-        break;
-    case OBD_REQ_RPM:      parse_pid_rpm(data, dlen);      break;
-    case OBD_REQ_SPEED:    parse_pid_speed(data, dlen);    break;
-    case OBD_REQ_COOLANT:  parse_pid_coolant(data, dlen);  break;
-    case OBD_REQ_OIL:      parse_pid_oil(data, dlen);      break;
-    case OBD_REQ_SOC:      parse_pid_soc(data, dlen);      break;
-    case OBD_REQ_VOLTAGE:  parse_pid_voltage(data, dlen);  break;
-    case OBD_REQ_THROTTLE: parse_pid_throttle(data, dlen); break;
-    default: break;
+    if (is_prompt(resp)) {
+        s_atz_ready = true;
+        return;
     }
+    if (is_ok(resp)) {
+        /* AT 命令的 OK 响应，可提前进入下一步 */
+        return;
+    }
+    if (strstr(resp, "ELM327")) {
+        /* ATZ 后的版本信息，表示 ATZ 成功 */
+        if (s_st == ST_INIT_ATZ) {
+            s_atz_ready = true;
+        }
+        return;
+    }
+    if (strstr(resp, "SEARCHING")) {
+        /* 搜索协议中，等待后续行 */
+        return;
+    }
+    if (s_st >= ST_PID_RPM) parse_std(resp);
 }
 
-static void next_state(void)
-{
-    s_state++;
-    if (s_state >= OBD_COUNT) {
-        s_state = OBD_REQ_RPM;  /* 循环 */
-    }
-}
+static void next(void) { s_st++; if (s_st >= ST_COUNT) s_st = ST_PID_RPM; }
 
-static const char *state_cmd(obd_state_t st)
-{
+static const char *cmd_of(st_t st) {
     switch (st) {
-    case OBD_INIT_ATZ:     return "ATZ";
-    case OBD_INIT_ATE0:    return "ATE0";
-    case OBD_INIT_ATL1:    return "ATL1";
-    case OBD_INIT_ATSP0:   return "ATSP0";
-    case OBD_REQ_RPM:      return "010C";
-    case OBD_REQ_SPEED:    return "010D";
-    case OBD_REQ_COOLANT:  return "0105";
-    case OBD_REQ_OIL:      return "015C";
-    case OBD_REQ_SOC:      return "015B";
-    case OBD_REQ_VOLTAGE:  return "0142";
-    case OBD_REQ_THROTTLE: return "0111";
+    case ST_INIT_ATZ:      return "ATZ";
+    case ST_INIT_ATE0:     return "ATE0";
+    case ST_INIT_ATL1:     return "ATL1";
+    case ST_INIT_ATS1:     return "ATS1";
+    case ST_INIT_ATH1:     return "ATH1";
+    case ST_INIT_ATSP6:    return "ATSP6";
+    case ST_INIT_ATSH7E0:  return "ATSH7E0";
+    case ST_INIT_ATS0:     return "ATS0";
+    case ST_PID_RPM:       return "010C";
+    case ST_PID_SPEED:     return "010D";
+    case ST_PID_COOLANT:   return "0105";
+    case ST_PID_VOLTAGE:   return "0142";
+    case ST_PID_THROTTLE:  return "0111";
+    case ST_PID_ODOMETER:  return "01A6";
+    case ST_PID_SOC:       return "015B";
+    case ST_PID_DIST:      return "0131";
     default: return "";
     }
 }
 
-static int state_timeout(obd_state_t st)
+static int tof(st_t st)
 {
-    return (st <= OBD_INIT_ATSP0) ? INIT_TIMEOUT : CMD_TIMEOUT;
+    if (st == ST_INIT_ATZ) return 4000;      /* ATZ 复位需要更久 */
+    if (st <= ST_INIT_ATSH7E0) return 2000;  /* 初始化命令给 2s */
+    return 1000;                               /* PID 轮询 1s */
 }
 
 /* ========== 公共接口 ========== */
-
-void obd_init(void)
-{
-    memset(&s_data, 0, sizeof(s_data));
-    s_running = false;
-    s_state = OBD_IDLE;
-    elm_init();
-    ESP_LOGI(TAG, "initialized");
-}
-
-void obd_start(void)
-{
-    if (s_running) return;
-    s_running = true;
-    s_state = OBD_INIT_ATZ;
-    s_init_retry = 0;
-    s_last_ms = 0;
-    ESP_LOGI(TAG, "start");
-}
-
-void obd_stop(void)
-{
-    s_running = false;
-    s_state = OBD_IDLE;
-    ESP_LOGI(TAG, "stop");
-}
+void obd_init(void)  { memset(&s_data,0,sizeof(s_data)); s_running=false; s_st=ST_IDLE; s_atz_ready=false; elm_init(); }
+void obd_start(void) { if(s_running)return; s_running=true; s_st=ST_INIT_ATZ; s_retry=0; s_wait=0; s_tx_fail=0; s_atz_ready=false; ESP_LOGI(TAG,"start"); }
+void obd_stop(void)  { s_running=false; s_st=ST_IDLE; ESP_LOGI(TAG,"stop"); }
 
 void obd_update(void)
 {
     if (!s_running) return;
 
-    /* 先处理 ELM 接收 */
     elm_poll(0);
-    if (elm_rx_ready()) {
-        const char *resp = elm_rx_buf();
-        handle_rx(resp);
-        elm_rx_clear();
-        s_rx_wait = 0;
-        /* 收到响应，进入下一个 PID */
-        next_state();
+    while (elm_rx_ready()) {
+        handle_rx(elm_rx_buf());
     }
 
     uint32_t now = lv_tick_get();
 
-    /* 超时检测 */
-    if (s_rx_wait > 0 && (now - s_rx_wait) > (uint32_t)state_timeout(s_state)) {
-        ESP_LOGW(TAG, "timeout @ state %d", s_state);
-        s_rx_wait = 0;
-        if (s_state <= OBD_INIT_ATSP0) {
-            /* 初始化超时，重试 */
-            s_init_retry++;
-            if (s_init_retry > 3) {
-                ESP_LOGE(TAG, "init failed after 3 retries");
-                s_running = false;
-                return;
-            }
-            s_state = OBD_INIT_ATZ;
+    /* 收到 > 提示符或超时后推进状态 */
+    if (s_wait > 0 && (now - s_wait) > (uint32_t)tof(s_st)) {
+        s_wait = 0;
+        if (s_st <= ST_INIT_ATSH7E0) {
+            if (++s_retry > 5) { s_running = false; ESP_LOGW(TAG, "init timeout, stop"); return; }
+            ESP_LOGW(TAG, "timeout retry %d, reset to ATZ", s_retry);
+            s_st = ST_INIT_ATZ;
+            s_atz_ready = false;
         } else {
-            /* PID 超时，跳过 */
-            next_state();
+            next();
         }
     }
 
-    /* 发送当前状态对应的命令 */
-    if (s_rx_wait == 0 && (s_last_ms == 0 || (now - s_last_ms) >= POLL_INTERVAL)) {
-        const char *cmd = state_cmd(s_state);
-        if (cmd[0]) {
-            if (send_cmd(cmd)) {
-                s_rx_wait = now;
-                s_last_ms = now;
-            } else {
-                ESP_LOGE(TAG, "send failed");
-            }
+    /* 如果收到 > 提示符，且处于初始化阶段，可提前发下一条 */
+    if (s_atz_ready && s_wait > 0 && s_st < ST_PID_RPM) {
+        s_wait = 0;
+        s_atz_ready = false;
+        next();
+    }
+
+    /* 写失败暂停 */
+    if (s_tx_fail >= 5 && (now - s_wait) < 500) return;
+    if (s_tx_fail >= 5) s_tx_fail = 0;
+
+    if (s_wait == 0) {
+        const char *c = cmd_of(s_st);
+        if (c[0]) {
+            if (tx(c)) s_wait = now;
+            else s_wait = now;
+        } else {
+            next();
         }
     }
 }
 
-const obd_data_t *obd_get_data(void)
-{
-    return &s_data;
-}
-
-/* 可选：通过 IMU 的油门估算功率（简易方案） */
-void obd_set_power_from_accel(float kw)
-{
-    s_data.power_kw = kw;
-}
+const obd_data_t *obd_get_data(void) { return &s_data; }

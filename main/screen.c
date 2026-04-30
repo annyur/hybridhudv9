@@ -7,6 +7,7 @@
 #include "setting.h"
 #include "bluetooth.h"
 #include "nvs_flash.h"
+#include "esp_log.h"
 
 #define NVS_NAMESPACE "hud"
 #define NVS_KEY_MAIN  "main_scr"
@@ -146,36 +147,45 @@ static void on_btn_back(lv_event_t *e)
     apply_screen(SCREEN_SETTING);
 }
 
-/* 底层手势轮询（不依赖 LVGL 事件系统） */
+/* 底层手势轮询 — 遍历所有 POINTER 输入设备 */
 static void gesture_poll(void)
 {
-    lv_indev_t *indev = lv_indev_get_next(NULL);
-    if (!indev) return;
+    lv_indev_t *indev = NULL;
+    /* 找到触摸设备（POINTER 类型） */
+    while ((indev = lv_indev_get_next(indev)) != NULL) {
+        if (lv_indev_get_type(indev) != LV_INDEV_TYPE_POINTER) continue;
 
-    lv_point_t p;
-    lv_indev_get_point(indev, &p);
-    lv_indev_state_t state = lv_indev_get_state(indev);
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        lv_indev_state_t state = lv_indev_get_state(indev);
 
-    if (state == LV_INDEV_STATE_PRESSED && !s_touch_tracking) {
-        s_touch_tracking = true;
-        s_touch_start_x = p.x;
-        s_touch_start_y = p.y;
-    }
-    else if (state == LV_INDEV_STATE_RELEASED && s_touch_tracking) {
-        s_touch_tracking = false;
-        lv_coord_t dy = p.y - s_touch_start_y;
-
-        if (s_current == SCREEN_GENERAL || s_current == SCREEN_RACE) {
-            /* 从屏幕顶部区域向下划超过 60px → 进 Setting */
-            if (s_touch_start_y < 80 && dy > 60) {
-                apply_screen(SCREEN_SETTING);
-            }
+        if (state == LV_INDEV_STATE_PRESSED && !s_touch_tracking) {
+            s_touch_tracking = true;
+            s_touch_start_x = p.x;
+            s_touch_start_y = p.y;
+            ESP_LOGD("GEST", "press @ %d,%d", p.x, p.y);
+            return; /* 只处理第一个触摸设备 */
         }
-        else if (s_current == SCREEN_SETTING) {
-            /* 从屏幕底部区域向上划超过 60px → 回主界面 */
-            if (s_touch_start_y > 386 && dy < -60) {
-                apply_screen(s_main);
+        else if (state == LV_INDEV_STATE_RELEASED && s_touch_tracking) {
+            s_touch_tracking = false;
+            int dy = p.y - s_touch_start_y;
+            ESP_LOGD("GEST", "release @ %d,%d dy=%d", p.x, p.y, dy);
+
+            if (s_current == SCREEN_GENERAL || s_current == SCREEN_RACE) {
+                /* 顶部下滑：起点在顶部 100px，向下划超 40px */
+                if (s_touch_start_y < 100 && dy > 40) {
+                    ESP_LOGI("GEST", "swipe down → setting");
+                    apply_screen(SCREEN_SETTING);
+                }
             }
+            else if (s_current == SCREEN_SETTING) {
+                /* 底部上划：起点在底部 100px 内，向上划超 40px */
+                if (s_touch_start_y > 366 && dy < -40) {
+                    ESP_LOGI("GEST", "swipe up → main");
+                    apply_screen(s_main);
+                }
+            }
+            return;
         }
     }
 }

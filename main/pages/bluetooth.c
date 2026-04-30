@@ -31,6 +31,7 @@ static int  s_enter_tick = 0;
 static bool s_list_inited = false;
 static bool s_was_connected = false;
 static int  s_conn_idx = -1;
+static bool s_obd_started = false;  /* OBD 是否已启动 */
 
 /* 函数前向声明 */
 static void refresh_list(void);
@@ -190,16 +191,29 @@ void bluetooth_update(void)
                 }
                 set_status_label("Connected");
                 ESP_LOGI(TAG, "connected, idx=%d", s_conn_idx);
-                /* 启动 OBD 轮询 */
-                extern void obd_start(void);
-                obd_start();
+                /* 不立即启动 OBD，等 GATT 发现完成 */
+                s_obd_started = false;
             } else {
                 s_conn_idx = -1;
+                s_obd_started = false;
                 ESP_LOGI(TAG, "disconnected");
+                /* 断开时停止 OBD 轮询 */
+                extern void obd_stop(void);
+                obd_stop();
             }
             refresh_list();
         }
 
+        /* 已连接但 OBD 未启动 → 等 GATT 发现完成后启动 */
+        if (now_connected && !s_obd_started) {
+            extern bool conn_is_ready(void);
+            if (conn_is_ready()) {
+                s_obd_started = true;
+                extern void obd_start(void);
+                obd_start();
+                ESP_LOGI(TAG, "OBD started (GATT ready)");
+            }
+        }
     }
 }
 

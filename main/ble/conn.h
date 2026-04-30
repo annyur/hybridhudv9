@@ -14,8 +14,7 @@ void conn_poll(void);
 void conn_connect(const uint8_t *addr, uint8_t addr_type);
 void conn_disconnect(void);
 bool conn_is_connected(void);
-
-/* 获取当前已连接设备的地址（未连接返回 NULL） */
+bool conn_is_ready(void);           /* GATT 发现完成，可以安全写数据 */
 const uint8_t *conn_get_connected_addr(void);
 
 /* 原始数据接口（供 ELM327 / OBD / ble.c 使用） */
