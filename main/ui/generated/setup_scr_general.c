@@ -28,6 +28,19 @@ void setup_scr_general(lv_ui *ui)
     lv_obj_set_style_bg_color(ui->general, lv_color_hex(0x000000), LV_PART_MAIN|LV_STATE_DEFAULT);
     lv_obj_set_style_bg_grad_dir(ui->general, LV_GRAD_DIR_NONE, LV_PART_MAIN|LV_STATE_DEFAULT);
 
+    //Write codes general_img_1
+    ui->general_img_1 = lv_image_create(ui->general);
+    lv_obj_set_pos(ui->general_img_1, 83, 83);
+    lv_obj_set_size(ui->general_img_1, 300, 300);
+    lv_obj_add_flag(ui->general_img_1, LV_OBJ_FLAG_CLICKABLE);
+    lv_image_set_src(ui->general_img_1, &_bg_RGB565A8_300x300_RLE);
+    lv_image_set_pivot(ui->general_img_1, 50,50);
+    lv_image_set_rotation(ui->general_img_1, 0);
+
+    //Write style for general_img_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
+    lv_obj_set_style_image_recolor_opa(ui->general_img_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
+    lv_obj_set_style_image_opa(ui->general_img_1, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
+
     //Write codes general_arc_rpm
     ui->general_arc_rpm = lv_arc_create(ui->general);
     lv_obj_set_pos(ui->general_arc_rpm, 30, 30);
@@ -160,50 +173,6 @@ void setup_scr_general(lv_ui *ui)
     //Write style for general_arc_energy, Part: LV_PART_KNOB, State: LV_STATE_DEFAULT.
     lv_obj_set_style_bg_opa(ui->general_arc_energy, 0, LV_PART_KNOB|LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ui->general_arc_energy, 0, LV_PART_KNOB|LV_STATE_DEFAULT);
-
-    //Write codes general_cont_1
-    ui->general_cont_1 = lv_obj_create(ui->general);
-    lv_obj_set_pos(ui->general_cont_1, 208, 208);
-    lv_obj_set_size(ui->general_cont_1, 50, 50);
-    lv_obj_set_scrollbar_mode(ui->general_cont_1, LV_SCROLLBAR_MODE_OFF);
-
-    //Write style for general_cont_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
-    lv_obj_set_style_border_width(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_radius(ui->general_cont_1, 150, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_top(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_bottom(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_left(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_right(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(ui->general_cont_1, 30, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_color(ui->general_cont_1, lv_color_hex(0x2195f6), LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_opa(ui->general_cont_1, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_spread(ui->general_cont_1, 40, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_x(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_y(ui->general_cont_1, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-
-    //Write codes general_cont_2
-    ui->general_cont_2 = lv_obj_create(ui->general);
-    lv_obj_set_pos(ui->general_cont_2, 193, 193);
-    lv_obj_set_size(ui->general_cont_2, 80, 80);
-    lv_obj_set_scrollbar_mode(ui->general_cont_2, LV_SCROLLBAR_MODE_OFF);
-
-    //Write style for general_cont_2, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
-    lv_obj_set_style_border_width(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_radius(ui->general_cont_2, 100, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui->general_cont_2, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ui->general_cont_2, lv_color_hex(0x2195f6), LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_grad_dir(ui->general_cont_2, LV_GRAD_DIR_NONE, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_top(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_bottom(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_left(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_right(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(ui->general_cont_2, 50, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_color(ui->general_cont_2, lv_color_hex(0x2195f6), LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_opa(ui->general_cont_2, 255, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_spread(ui->general_cont_2, 80, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_x(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_offset_y(ui->general_cont_2, 0, LV_PART_MAIN|LV_STATE_DEFAULT);
 
     //Write codes general_label_rpm_number
     ui->general_label_rpm_number = lv_label_create(ui->general);

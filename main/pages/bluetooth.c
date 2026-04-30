@@ -111,7 +111,15 @@ void bluetooth_update(void)
     }
 }
 
-/* ========== 内部函数 ========== */
+static void set_btn_style(lv_obj_t *btn)
+{
+    lv_obj_set_style_text_color(btn, lv_color_hex(0x0D3055), LV_PART_MAIN);
+    lv_obj_set_style_text_font(btn, &lv_font_montserratMedium_16, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn, 255, LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 3, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn, 0, LV_PART_MAIN);
+}
 
 /* 按 RSSI 降序排序（信号强的在前） */
 static int cmp_idx_rssi_desc(const void *a, const void *b)
@@ -134,7 +142,8 @@ static void refresh_list(void)
 
     int count = scan_get_count();
     if (count == 0) {
-        lv_list_add_button(list, LV_SYMBOL_BLUETOOTH, "No devices found");
+        lv_obj_t *btn = lv_list_add_button(list, LV_SYMBOL_BLUETOOTH, "No devices found");
+        set_btn_style(btn);
         return;
     }
 
@@ -161,6 +170,7 @@ static void refresh_list(void)
 
         lv_obj_t *btn = lv_list_add_button(list, LV_SYMBOL_BLUETOOTH, buf);
         lv_obj_add_event_cb(btn, on_list_item, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+        set_btn_style(btn);
 
         /* 已连接设备标绿色 */
         const uint8_t *conn_addr = conn_get_connected_addr();
@@ -193,7 +203,8 @@ static void on_sw_enable(lv_event_t *e)
         set_status_label("Bluetooth OFF");
         /* 清空列表 */
         lv_obj_clean(guider_ui.bluetooth_bt_list_devices);
-        lv_list_add_button(guider_ui.bluetooth_bt_list_devices, LV_SYMBOL_BLUETOOTH, "Bluetooth OFF");
+        lv_obj_t *btn = lv_list_add_button(guider_ui.bluetooth_bt_list_devices, LV_SYMBOL_BLUETOOTH, "Bluetooth OFF");
+        set_btn_style(btn);
     }
 }
 
@@ -219,7 +230,8 @@ static void on_btn_scan(lv_event_t *e)
 
     /* 清空列表 */
     lv_obj_clean(guider_ui.bluetooth_bt_list_devices);
-    lv_list_add_button(guider_ui.bluetooth_bt_list_devices, LV_SYMBOL_BLUETOOTH, "Scanning...");
+    lv_obj_t *btn = lv_list_add_button(guider_ui.bluetooth_bt_list_devices, LV_SYMBOL_BLUETOOTH, "Scanning...");
+    set_btn_style(btn);
 }
 
 /* 列表项点击回调：连接设备 */

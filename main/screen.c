@@ -34,6 +34,29 @@ static lv_coord_t s_touch_start_y = 0;
 static bool       s_touch_tracking = false;
 static uint32_t   s_last_switch_ms = 0;
 
+/* ========== 内部辅助：递归禁用 Arc/Slider/Switch/Button/Img 的点击 ========== */
+static void disable_interactive_children(lv_obj_t *parent)
+{
+    if (!parent) return;
+    uint32_t cnt = lv_obj_get_child_count(parent);
+    for (uint32_t i = 0; i < cnt; i++) {
+        lv_obj_t *child = lv_obj_get_child(parent, i);
+        if (!child) continue;
+
+        const lv_obj_class_t *cls = lv_obj_get_class(child);
+        if (cls == &lv_arc_class ||
+            cls == &lv_slider_class ||
+            cls == &lv_switch_class ||
+            cls == &lv_button_class ||
+            cls == &lv_image_class) {
+            lv_obj_clear_flag(child, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(child, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        }
+        /* 递归处理容器 */
+        disable_interactive_children(child);
+    }
+}
+
 /* 执行切屏（带 enter/exit 回调） */
 static void apply_screen(screen_id_t id)
 {
@@ -137,18 +160,10 @@ void screen_init(void)
     setup_scr_setting(&guider_ui);
     setup_scr_bluetooth(&guider_ui);
 
-    /* ===== 禁用 Arc / Slider 触摸（防止拦截手势）===== */
-    lv_obj_clear_flag(guider_ui.general_arc_rpm,       LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.general_arc_speed,     LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.general_arc_oil,        LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.general_arc_energy,     LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.general_slider_energy, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_clear_flag(guider_ui.race_arc_4, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.race_arc_5, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.race_arc_6, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(guider_ui.race_arc_7, LV_OBJ_FLAG_CLICKABLE);
-    /* ================================================ */
+    /* ===== 递归禁用 general / race 所有 Arc/Slider/Switch/Button/Img 的点击 ===== */
+    disable_interactive_children(guider_ui.general);
+    disable_interactive_children(guider_ui.race);
+    /* ========================================================================== */
 
     /* 按钮事件绑定 */
     lv_obj_add_event_cb(guider_ui.setting_btn_2, on_btn_theme,     LV_EVENT_CLICKED, NULL);
