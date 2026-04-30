@@ -82,7 +82,6 @@ typedef struct
 	lv_obj_t *bluetooth_bt_btn_scan_label;
 	lv_obj_t *bluetooth_btn_back;
 	lv_obj_t *bluetooth_btn_back_label;
-	lv_obj_t *bluetooth_bt_sw_enable;
 }lv_ui;
 
 typedef void (*ui_setup_scr_t)(lv_ui * ui);
@@ -121,15 +120,16 @@ LV_IMAGE_DECLARE(_o_RGB565A8_20x18);
 LV_IMAGE_DECLARE(_e_RGB565A8_20x20);
 LV_IMAGE_DECLARE(_tempunit_RGB565A8_16x14);
 
-LV_FONT_DECLARE(lv_font_montserratMedium_26)
-LV_FONT_DECLARE(lv_font_montserratMedium_32)
-LV_FONT_DECLARE(lv_font_montserratMedium_24)
-LV_FONT_DECLARE(lv_font_montserratMedium_72)
-LV_FONT_DECLARE(lv_font_montserratMedium_68)
-LV_FONT_DECLARE(lv_font_montserratMedium_20)
-LV_FONT_DECLARE(lv_font_montserratMedium_18)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_26)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_32)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_24)
+LV_FONT_DECLARE(lv_font_OPPOSans_Bold_72)
+LV_FONT_DECLARE(lv_font_OPPOSans_Bold_68)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_20)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_18)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_36)
+LV_FONT_DECLARE(lv_font_OPPOSans_Medium_16)
 LV_FONT_DECLARE(lv_font_montserratMedium_16)
-LV_FONT_DECLARE(lv_font_montserratMedium_36)
 
 
 #ifdef __cplusplus

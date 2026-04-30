@@ -16,12 +16,32 @@ static bool s_active = false;
 static bool s_boot_done = false;
 
 /* G-force */
-#define G_SCALE   60.0f
-#define G_MAX     2.0f
-#define CENTER_X  233.0f
-#define CENTER_Y  233.0f
+#define G_MAX      1.0f    /* 最大显示加速度 1.0g */
+#define G_CENTER_X 233.0f  /* 圆心 X */
+#define G_CENTER_Y 233.0f  /* 圆心 Y */
+#define G_INNER_R  80.0f   /* 内圆半径：0~0.3g 放大区 */
+#define G_OUTER_R  160.0f  /* 外圆半径：总显示范围 */
+#define G_THRESH   0.3f    /* 放大阈值 */
 #define MAP_SCREEN_X(ay)   (-(ay))    /* 左右：取反 */
 #define MAP_SCREEN_Y(az)   (az)       /* 上下：取反 */
+
+/* 将加速度(g)映射到像素偏移，内圆放大外圆正常 */
+static float g_to_pixel(float g)
+{
+    float abs_g = g < 0 ? -g : g;
+    float sign  = g < 0 ? -1.0f : 1.0f;
+    float px;
+    if (abs_g <= G_THRESH) {
+        /* 0~0.3g 放大映射到 0~80 像素 */
+        px = (abs_g / G_THRESH) * G_INNER_R;
+    } else if (abs_g <= G_MAX) {
+        /* 0.3g~1.0g 映射到 80~160 像素 */
+        px = G_INNER_R + ((abs_g - G_THRESH) / (G_MAX - G_THRESH)) * (G_OUTER_R - G_INNER_R);
+    } else {
+        px = G_OUTER_R;  /* 封顶 */
+    }
+    return px * sign;
+}
 
 /* 颜色 */
 #define COLOR_GREEN  lv_color_hex(0x00ff24)
@@ -93,9 +113,13 @@ void race_enter(void)
 {
     s_active = true;
     s_boot_done = true;   /* 跳过开机动画，直接允许 arc 和 G-force 更新 */
-    /* 重置所有动画状态，从零开始 */
-    s_boot_start = 0;
-    s_breath_tick = 0;
+    /* 首次进入时才重置动画状态，之后切回来不再重复播放 */
+    static bool s_first_enter = true;
+    if (s_first_enter) {
+        s_first_enter = false;
+        s_boot_start = 0;
+        s_breath_tick = 0;
+    }
     hud_imu_calibrate();
 }
 
@@ -178,17 +202,18 @@ update_label:
         if (hud_imu_get_accel(&ax, &ay, &az)) {
             float g_x = MAP_SCREEN_X(ay) / 9.8f;
             float g_y = MAP_SCREEN_Y(az) / 9.8f;
-            if (g_x > G_MAX)  g_x = G_MAX;
-            if (g_x < -G_MAX) g_x = -G_MAX;
-            if (g_y > G_MAX)  g_y = G_MAX;
-            if (g_y < -G_MAX) g_y = -G_MAX;
 
-            float px = CENTER_X + g_x * G_SCALE - 10.0f;
-            float py = CENTER_Y + g_y * G_SCALE - 10.0f;
-            if (px < 83.0f) px = 83.0f;
-            if (px > 383.0f) px = 383.0f;
-            if (py < 83.0f) py = 83.0f;
-            if (py > 383.0f) py = 383.0f;
+            /* 分段映射：内圆(0~0.3g)放大，外环(0.3~1.0g)正常 */
+            float off_x = g_to_pixel(g_x);
+            float off_y = g_to_pixel(g_y);
+
+            float px = G_CENTER_X + off_x - 10.0f;
+            float py = G_CENTER_Y + off_y - 10.0f;
+            /* 硬边界：G点中心不出外圆 */
+            if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
+            if (px > G_CENTER_X + G_OUTER_R - 20.0f) px = G_CENTER_X + G_OUTER_R - 20.0f;
+            if (py < G_CENTER_Y - G_OUTER_R) py = G_CENTER_Y - G_OUTER_R;
+            if (py > G_CENTER_Y + G_OUTER_R - 20.0f) py = G_CENTER_Y + G_OUTER_R - 20.0f;
 
             lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
 
@@ -211,7 +236,7 @@ update_label:
     if (d->speed != s_last_speed) {
         s_last_speed = d->speed;
         set_arcs_value(d->speed);
-        snprintf(buf, sizeof(buf), "%d", d->speed);
+        snprintf(buf, sizeof(buf), "%02d", d->speed);
         lv_label_set_text(guider_ui.race_label_speed_number, buf);
     }
     if (fabsf(d->power_kw - s_last_kw) > 0.1f) {
