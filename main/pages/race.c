@@ -211,7 +211,7 @@ update_label:
     if (d->speed != s_last_speed) {
         s_last_speed = d->speed;
         set_arcs_value(d->speed);
-        snprintf(buf, sizeof(buf), "%02d", d->speed);
+        snprintf(buf, sizeof(buf), "%d", d->speed);
         lv_label_set_text(guider_ui.race_label_speed_number, buf);
     }
     if (fabsf(d->power_kw - s_last_kw) > 0.1f) {
@@ -223,7 +223,7 @@ update_label:
     /* ========== 冷却液温度 → label_1 ========== */
     if (d->coolant != s_last_coolant) {
         s_last_coolant = d->coolant;
-        snprintf(buf, sizeof(buf), "%d°C", d->coolant);
+        snprintf(buf, sizeof(buf), "%d", d->coolant);
         lv_label_set_text(guider_ui.race_label_1, buf);
     }
 
