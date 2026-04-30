@@ -6,7 +6,6 @@
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
 #include "esp_task_wdt.h"
-#include "esp_log.h"
 
 #include "screen.h"
 #include "imu.h"
@@ -14,8 +13,6 @@
 #include "ble.h"
 #include "obd.h"
 #include "general.h"
-
-static const char *TAG = "MAIN";
 
 static void sensor_task(void *pv)
 {
@@ -36,28 +33,15 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    /* 启动显示系统 */
     bsp_display_start();
 
-    /* 业务初始化（暗屏） */
     ble_init();
     obd_init();
 
-    /* UI 初始化 + 开机动画 */
     bsp_display_lock(-1);
     screen_init();
     general_boot_animation();
     bsp_display_unlock();
-
-    /* 强制 LVGL 刷新周期为 100ms (10Hz)，减轻 QSPI 带宽压力 */
-    lv_display_t *disp = lv_display_get_default();
-    if (disp) {
-        lv_timer_t *refr = lv_display_get_refr_timer(disp);
-        if (refr) {
-            lv_timer_set_period(refr, 100);
-            ESP_LOGI(TAG, "LVGL refresh period set to 100ms");
-        }
-    }
 
     bsp_display_backlight_on();
 
@@ -67,6 +51,6 @@ void app_main(void)
         bsp_display_lock(-1);
         screen_update();
         bsp_display_unlock();
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(50));  /* 匹配 LVGL 30Hz，降低 CPU 占用 */
     }
 }

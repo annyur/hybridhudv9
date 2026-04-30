@@ -38,6 +38,10 @@ static float s_last_kw = -999.0f;
 static int   s_last_time_mm = -1;
 static float s_last_color_kw = -999.0f;
 
+/* 动画状态 */
+static uint32_t s_boot_start = 0;
+static int      s_breath_tick = 0;
+
 static void set_arcs_color(lv_color_t c)
 {
     for (int i = 0; i < 4; i++)
@@ -58,20 +62,20 @@ static void update_arc_colors(float kw)
     set_arcs_color(c);
 }
 
-/* ========== G 点呼吸动画（手动驱动，不创建 lv_anim） ========== */
+/* ========== G 点呼吸动画（手动驱动，24步/480ms） ========== */
 static void gpoint_breath_step(int tick)
 {
-    /* tick: 0~60，周期 ~960ms @ 60fps → 实际由 race_update 帧率决定 */
-    int phase = tick % 60;
+    /* tick: 0~24，周期 480ms @ 20ms */
+    int phase = tick % 24;
     int opa;
-    if (phase < 20) {
-        /* 0~20: 淡入 0→255 */
-        opa = (phase * 255) / 20;
-    } else if (phase < 40) {
-        /* 20~40: 淡出 255→0 */
-        opa = 255 - ((phase - 20) * 255) / 20;
+    if (phase < 8) {
+        /* 0~8 (0~160ms): 淡入 0→255 */
+        opa = (phase * 255) / 8;
+    } else if (phase < 16) {
+        /* 8~16 (160~320ms): 淡出 255→0 */
+        opa = 255 - ((phase - 8) * 255) / 8;
     } else {
-        /* 40~60: 等待 */
+        /* 16~24 (320~480ms): 透明等待 */
         opa = 0;
     }
     lv_obj_set_style_opa(guider_ui.race_label_G_piont, opa, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -87,56 +91,63 @@ void race_boot_animation(void)
 void race_enter(void)
 {
     s_active = true;
+    /* 重置所有动画状态，从零开始 */
+    s_boot_start = 0;
+    s_breath_tick = 0;
     hud_imu_calibrate();
 }
 
 void race_exit(void)
 {
     s_active = false;
+    /* 切走时重置所有动画状态，切回来时从零开始 */
+    /* s_boot_start 和 s_breath_tick 由 race_enter 重置 */
 }
 
 void race_update(void)
 {
     if (!s_active) return;
 
-    /* ===================== 开机动画（手动分步，只播放一次） ===================== */
-    static uint32_t s_boot_start = 0;
+    const obd_data_t *d = obd_get_data();
+    char buf[32];
+
+    /* ===================== 开机动画（只播放一次，G 点呼吸同时进行） ===================== */
     if (s_boot_done && s_boot_start == 0) {
         s_boot_start = lv_tick_get();
     }
     if (s_boot_start > 0 && s_boot_start != 0xFFFFFFFF) {
         uint32_t elapsed = lv_tick_get() - s_boot_start;
+        /* G 点呼吸（始终进行） */
+        s_breath_tick++;
+        gpoint_breath_step(s_breath_tick);
+
         if (elapsed < 500) {
-            /* 0~500ms: 等待 */
-            return;
+            /* 0~500ms: 只呼吸 */
         } else if (elapsed < 1500) {
-            /* 500~1500ms: sweep up */
+            /* 500~1500ms: arc sweep up */
             int v = ((elapsed - 500) * 200) / 1000;
             if (v > 200) v = 200;
             set_arcs_value(v);
-            return;
         } else if (elapsed < 2500) {
-            /* 1500~2500ms: sweep down */
+            /* 1500~2500ms: arc sweep down */
             int v = 200 - ((elapsed - 1500) * 200) / 1000;
             if (v < 0) v = 0;
             set_arcs_value(v);
-            return;
         } else {
             /* 动画结束 */
             set_arcs_value(0);
             s_boot_start = 0xFFFFFFFF;
         }
+        /* boot 期间也更新 label */
+        goto update_label;
     }
-
-    const obd_data_t *d = obd_get_data();
-    char buf[32];
 
     /* ===================== 蓝牙未连接：arc=0，G点呼吸 ===================== */
     if (!ble_is_connected()) {
-        static int s_breath_tick = 0;
         s_breath_tick++;
         gpoint_breath_step(s_breath_tick);
 
+update_label:
         /* label 仍然更新 */
         if (d) {
             if (d->speed != s_last_speed) {

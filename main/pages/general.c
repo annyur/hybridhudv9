@@ -15,40 +15,27 @@ extern lv_ui guider_ui;
 static bool s_active = false;
 static bool s_boot_done = false;   /* 开机动画只启动一次 */
 
-/* ===== Slider 呼吸动画回调 ===== */
-static void slider_breath_cb(void *var, int32_t v)
+/* ===== Slider 呼吸：手动驱动，24步/480ms，和 race G 点一致 ===== */
+static void slider_breath_step(int tick)
 {
-    lv_obj_t *slider = var;
-
-    if (v < 33) {
-        /* 阶段 1：扩展（0~33） */
-        int ext = (v * 50) / 33;           /* 0 ~ 50 */
-        lv_slider_set_left_value(slider, 50 - ext, LV_ANIM_OFF);
-        lv_slider_set_value(slider, 50 + ext, LV_ANIM_OFF);
-        lv_obj_set_style_opa(slider, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
-    } else if (v < 66) {
-        /* 阶段 2：渐隐（33~66） */
-        int opa = 255 - ((v - 33) * 255) / 33;
-        lv_obj_set_style_opa(slider, opa, LV_PART_MAIN | LV_STATE_DEFAULT);
+    /* tick: 0~24，周期 480ms @ 20ms */
+    int phase = tick % 24;
+    if (phase < 8) {
+        /* 0~8 (0~160ms): 从中间向两端扩展 */
+        int ext = (phase * 50) / 8;
+        lv_slider_set_left_value(guider_ui.general_slider_energy, 50 - ext, LV_ANIM_OFF);
+        lv_slider_set_value(guider_ui.general_slider_energy, 50 + ext, LV_ANIM_OFF);
+        lv_obj_set_style_opa(guider_ui.general_slider_energy, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    } else if (phase < 16) {
+        /* 8~16 (160~320ms): 渐隐 */
+        int opa = 255 - ((phase - 8) * 255) / 8;
+        lv_obj_set_style_opa(guider_ui.general_slider_energy, opa, LV_PART_MAIN | LV_STATE_DEFAULT);
     } else {
-        /* 阶段 3：透明等待（66~100） */
-        lv_obj_set_style_opa(slider, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_slider_set_left_value(slider, 50, LV_ANIM_OFF);
-        lv_slider_set_value(slider, 50, LV_ANIM_OFF);
+        /* 16~24 (320~480ms): 透明等待 */
+        lv_obj_set_style_opa(guider_ui.general_slider_energy, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_slider_set_left_value(guider_ui.general_slider_energy, 50, LV_ANIM_OFF);
+        lv_slider_set_value(guider_ui.general_slider_energy, 50, LV_ANIM_OFF);
     }
-}
-
-static void general_slider_breath_start(void)
-{
-    lv_anim_t a;
-    lv_anim_init(&a);
-    lv_anim_set_var(&a, guider_ui.general_slider_energy);
-    lv_anim_set_values(&a, 0, 100);
-    lv_anim_set_exec_cb(&a, slider_breath_cb);
-    lv_anim_set_time(&a, 960);              /* 960ms 一周期 */
-    lv_anim_set_repeat_delay(&a, 0);
-    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-    lv_anim_start(&a);
 }
 
 /* ===== 开机动画：启动 LVGL 内置 sweep ===== */
@@ -81,16 +68,6 @@ void general_boot_animation(void)
     lv_anim_start(&a);
 }
 
-void general_enter(void)
-{
-    s_active = true;
-}
-
-void general_exit(void)
-{
-    s_active = false;
-}
-
 /* 上次的值，用于减少不必要的刷新 */
 static int   s_last_rpm     = -1;
 static int   s_last_speed   = -1;
@@ -103,7 +80,23 @@ static float s_last_batt_v  = -1.0f;
 static float s_last_odom    = -1.0f;
 static int   s_last_time_mm = -1;
 static float s_last_slider_kw = -999.0f;
-static bool  s_slider_breath = false;   /* true = 正在呼吸 */
+
+void general_enter(void)
+{
+    s_active = true;
+    /* 重置 OBD 刷新标记，确保切回来后立即刷新 */
+    s_last_rpm = s_last_speed = s_last_coolant = s_last_oil = s_last_soc = -1;
+    s_last_kw = s_last_slider_kw = -999.0f;
+    s_last_dist = -1;
+    s_last_batt_v = -1.0f;
+    s_last_odom = -1.0f;
+    s_last_time_mm = -1;
+}
+
+void general_exit(void)
+{
+    s_active = false;
+}
 
 void general_update(void)
 {
@@ -173,31 +166,23 @@ void general_update(void)
 
     /* ========== 功率 Slider（双向：中间为0） ========== */
     if (!ble_is_connected()) {
-        /* 未连接蓝牙：启动呼吸动画 */
-        if (!s_slider_breath) {
-            s_slider_breath = true;
-            general_slider_breath_start();
-        }
+        /* 未连接蓝牙：手动呼吸动画 */
+        static int s_slider_tick = 0;
+        s_slider_tick++;
+        slider_breath_step(s_slider_tick);
     } else {
-        /* 已连接蓝牙：停止呼吸动画，显示实际功率 */
-        if (s_slider_breath) {
-            s_slider_breath = false;
-            lv_anim_del(guider_ui.general_slider_energy, NULL);
-            lv_obj_set_style_opa(guider_ui.general_slider_energy, LV_OPA_COVER,
-                                 LV_PART_MAIN | LV_STATE_DEFAULT);
-        }
+        /* 已连接蓝牙：恢复不透明，显示实际功率 */
+        lv_obj_set_style_opa(guider_ui.general_slider_energy, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
 #define MAX_KW 100.0f
         if (fabsf(d->power_kw - s_last_slider_kw) > 0.5f) {
             s_last_slider_kw = d->power_kw;
             if (d->power_kw >= 0) {
-                /* 正功率：左端固定50，右端向100增长 */
                 int right = 50 + (int)((d->power_kw / MAX_KW) * 50.0f);
                 if (right > 100) right = 100;
                 lv_slider_set_left_value(guider_ui.general_slider_energy, 50, LV_ANIM_OFF);
                 lv_slider_set_value(guider_ui.general_slider_energy, right, LV_ANIM_OFF);
             } else {
-                /* 负功率：右端固定50，左端向0递减 */
                 int left = 50 - (int)((-d->power_kw / MAX_KW) * 50.0f);
                 if (left < 0) left = 0;
                 lv_slider_set_left_value(guider_ui.general_slider_energy, left, LV_ANIM_OFF);
