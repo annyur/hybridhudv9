@@ -4,6 +4,7 @@
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "host/ble_sm.h"
 #include "os/os_mbuf.h"
 #include <string.h>
 
@@ -15,6 +16,7 @@ static int s_rx_len = 0;
 static bool s_rx_new = false;
 
 static bool s_connected = false;
+static bool s_connecting = false;   /* 连接中标志，防止重复调用 */
 static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t s_write_handle = 0;
 static uint16_t s_notify_handle = 0;
@@ -43,6 +45,7 @@ static int gatt_subscribe_cb(uint16_t conn_handle, const struct ble_gatt_error *
 void conn_init(void)
 {
     s_connected = false;
+    s_connecting = false;
     s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_write_handle = 0;
     s_notify_handle = 0;
@@ -65,34 +68,47 @@ void conn_disconnect(void)
     }
 }
 
-void conn_connect(const uint8_t *addr, bool public)
+void conn_connect(const uint8_t *addr, uint8_t addr_type)
 {
-    if (s_connected) conn_disconnect();
+    if (s_connecting) {
+        ESP_LOGW(TAG, "already connecting, ignore");
+        return;
+    }
+    if (s_connected) {
+        conn_disconnect();
+        return;
+    }
 
+    s_connecting = true;
     memcpy(s_target_addr, addr, 6);
-    s_target_addr_type = public ? BLE_ADDR_PUBLIC : BLE_ADDR_RANDOM;
+    s_target_addr_type = addr_type;
 
+    /* 保守连接参数，兼容更多设备 */
     struct ble_gap_conn_params params = {
         .scan_itvl = 0x50,
         .scan_window = 0x30,
-        .itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN,
-        .itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX,
+        .itvl_min = 0x0018,  /* 30ms */
+        .itvl_max = 0x0030,  /* 60ms */
         .latency = 0,
-        .supervision_timeout = 400,
+        .supervision_timeout = 500,
         .min_ce_len = 0,
         .max_ce_len = 0,
     };
 
     ble_addr_t peer_addr = {
-        .type = s_target_addr_type,
+        .type = addr_type,
     };
     memcpy(peer_addr.val, addr, 6);
 
-    int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &peer_addr, 10000, &params, gap_conn_event, NULL);
+    int rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &peer_addr, 8000, &params, gap_conn_event, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "connect failed: %d", rc);
+        s_connecting = false;
     } else {
-        ESP_LOGI(TAG, "connecting...");
+        const char *type_str = (addr_type == BLE_ADDR_PUBLIC) ? "PUBLIC" :
+                               (addr_type == BLE_ADDR_RANDOM) ? "RANDOM" : "OTHER";
+        ESP_LOGI(TAG, "connecting to %02X:%02X:%02X:%02X:%02X:%02X (%s)",
+                 addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], type_str);
     }
 }
 
@@ -127,6 +143,7 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
     (void)arg;
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT: {
+        s_connecting = false;
         if (event->connect.status == 0) {
             s_connected = true;
             s_conn_handle = event->connect.conn_handle;
@@ -135,16 +152,39 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
         } else {
             ESP_LOGE(TAG, "connect failed, status=%d", event->connect.status);
             s_connected = false;
+            s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         }
         return 0;
     }
     case BLE_GAP_EVENT_DISCONNECT: {
         ESP_LOGI(TAG, "disconnected, reason=%d", event->disconnect.reason);
         s_connected = false;
+        s_connecting = false;
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_write_handle = 0;
         s_notify_handle = 0;
         s_cccd_handle = 0;
+        return 0;
+    }
+    case BLE_GAP_EVENT_ENC_CHANGE: {
+        ESP_LOGI(TAG, "encryption change, status=%d", event->enc_change.status);
+        return 0;
+    }
+    case BLE_GAP_EVENT_PASSKEY_ACTION: {
+        /* 无键盘设备：自动回复 000000 */
+        struct ble_sm_io pkey = {0};
+        pkey.action = event->passkey.params.action;
+        if (pkey.action == BLE_SM_IOACT_NUMCMP) {
+            pkey.numcmp_accept = 1;  /* 自动接受数字比较 */
+            ESP_LOGI(TAG, "auto-accept numeric comparison");
+        } else if (pkey.action == BLE_SM_IOACT_DISP) {
+            pkey.passkey = 0;  /* 显示 000000 */
+            ESP_LOGI(TAG, "passkey: 000000");
+        } else if (pkey.action == BLE_SM_IOACT_INPUT) {
+            pkey.passkey = 0;  /* 输入 000000 */
+            ESP_LOGI(TAG, "input passkey: 000000");
+        }
+        ble_sm_inject_io(event->passkey.conn_handle, &pkey);
         return 0;
     }
     case BLE_GAP_EVENT_NOTIFY_RX: {

@@ -12,6 +12,7 @@ extern "C" {
 typedef struct {
     char name[32];
     uint8_t addr[6];
+    uint8_t addr_type;  /* BLE_ADDR_PUBLIC=0, BLE_ADDR_RANDOM=1, BLE_ADDR_RPA_PUB=2, BLE_ADDR_RPA_RAND=3 */
     int8_t rssi;
 } scan_device_t;
 

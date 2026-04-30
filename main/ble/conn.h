@@ -11,7 +11,7 @@ extern "C" {
 
 void conn_init(void);
 void conn_poll(void);
-void conn_connect(const uint8_t *addr, bool public);
+void conn_connect(const uint8_t *addr, uint8_t addr_type);
 void conn_disconnect(void);
 bool conn_is_connected(void);
 

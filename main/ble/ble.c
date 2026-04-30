@@ -26,8 +26,14 @@ void ble_init(void)
 
     ble_hs_cfg.sync_cb  = on_sync;
     ble_hs_cfg.reset_cb = on_reset;
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;
-    ble_hs_cfg.sm_sc = 0;
+    
+    /* 安全配对配置：无 IO 设备，自动配对 */
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_NO_IO;  /* 无键盘/显示器 */
+    ble_hs_cfg.sm_bonding = 1;                    /* 启用绑定 */
+    ble_hs_cfg.sm_mitm = 0;                       /* 不需要 MITM 保护 */
+    ble_hs_cfg.sm_sc = 1;                         /* 启用 LE Secure Connections */
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC;
 
     nimble_port_freertos_init(ble_host_task);
 
