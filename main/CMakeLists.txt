@@ -36,7 +36,7 @@ idf_component_register(
         "ui/generated/guider_fonts/lv_font_montserratMedium_68.c"
         "ui/generated/guider_fonts/lv_font_montserratMedium_72.c"
         "ui/generated/images/_Gforce_RGB565A8_320x320.c"
-        "ui/generated/images/_bg_RGB565A8_300x300_RLE.c"
+        "ui/generated/images/_bg_RGB565A8_300x300.c"
         "ui/generated/images/_e_RGB565A8_20x20.c"
         "ui/generated/images/_o_RGB565A8_20x18.c"
         "ui/generated/images/_tempunit_RGB565A8_16x14.c"

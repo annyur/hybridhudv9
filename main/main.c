@@ -12,6 +12,7 @@
 #include "imu.h"
 #include "rtc.h"
 #include "ble.h"
+#include "conn.h"
 #include "obd.h"
 #include "general.h"
 #include "bluetooth.h"
@@ -42,6 +43,7 @@ void app_main(void)
 
     /* 业务初始化 */
     ble_init();
+    ble_enable();   /* 开机默认启用蓝牙 */
     obd_init();
 
     /* UI 初始化 + 开机动画 */
@@ -58,7 +60,12 @@ void app_main(void)
         bsp_display_lock(-1);
         screen_update();
         bluetooth_auto_reconnect();
-        obd_update();  /* OBD 轮询 */
+        /* OBD 自动启动：不依赖蓝牙界面，后台持续检查 */
+        if (conn_is_ready() && !obd_is_running()) {
+            obd_start();
+            ESP_LOGI(TAG, "OBD auto started");
+        }
+        obd_update();
         bsp_display_unlock();
         vTaskDelay(pdMS_TO_TICKS(20));
     }

@@ -37,6 +37,7 @@ static int   s_last_speed = -1;
 static float s_last_kw = -999.0f;
 static int   s_last_time_mm = -1;
 static float s_last_color_kw = -999.0f;
+static int   s_last_coolant = -999;
 
 /* 动画状态 */
 static uint32_t s_boot_start = 0;
@@ -91,6 +92,7 @@ void race_boot_animation(void)
 void race_enter(void)
 {
     s_active = true;
+    s_boot_done = true;   /* 跳过开机动画，直接允许 arc 和 G-force 更新 */
     /* 重置所有动画状态，从零开始 */
     s_boot_start = 0;
     s_breath_tick = 0;
@@ -216,6 +218,13 @@ update_label:
         s_last_kw = d->power_kw;
         snprintf(buf, sizeof(buf), "%.1f", d->power_kw);
         lv_label_set_text(guider_ui.race_label_energy_number, buf);
+    }
+
+    /* ========== 冷却液温度 → label_1 ========== */
+    if (d->coolant != s_last_coolant) {
+        s_last_coolant = d->coolant;
+        snprintf(buf, sizeof(buf), "%d°C", d->coolant);
+        lv_label_set_text(guider_ui.race_label_1, buf);
     }
 
 update_time:

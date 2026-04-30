@@ -84,6 +84,7 @@ static float s_last_slider_kw = -999.0f;
 void general_enter(void)
 {
     s_active = true;
+    s_boot_done = true;   /* 跳过开机动画，直接允许 arc 更新 */
     /* 重置 OBD 刷新标记，确保切回来后立即刷新 */
     s_last_rpm = s_last_speed = s_last_coolant = s_last_oil = s_last_soc = -1;
     s_last_kw = s_last_slider_kw = -999.0f;
@@ -157,10 +158,16 @@ void general_update(void)
         lv_label_set_text(guider_ui.general_label_temp, buf);
     }
 
-    /* ========== 功率 (kw) ========== */
+    /* ========== 功率 (kw) — 符号反向：正数=耗电显示"-"，负数=回收显示"+" ========== */
     if (fabsf(d->power_kw - s_last_kw) > 0.1f) {
         s_last_kw = d->power_kw;
-        snprintf(buf, sizeof(buf), "%.1f", d->power_kw);
+        if (d->power_kw > 0) {
+            snprintf(buf, sizeof(buf), "-%.1f", d->power_kw);
+        } else if (d->power_kw < 0) {
+            snprintf(buf, sizeof(buf), "+%.1f", -d->power_kw);
+        } else {
+            snprintf(buf, sizeof(buf), "0.0");
+        }
         lv_label_set_text(guider_ui.general_label_energy_number, buf);
     }
 
@@ -191,10 +198,10 @@ void general_update(void)
         }
     }
 
-    /* ========== 续航里程 (km) ========== */
-    if (d->dist != s_last_dist) {
-        s_last_dist = d->dist;
-        snprintf(buf, sizeof(buf), "%d", d->dist);
+    /* ========== 剩余可用能量 (kWh) ========== */
+    if (d->bms_remain_wh != s_last_dist) {
+        s_last_dist = d->bms_remain_wh;
+        snprintf(buf, sizeof(buf), "%.1f", d->bms_remain_wh / 1000.0f);
         lv_label_set_text(guider_ui.general_label_energy_number_2, buf);
     }
 
@@ -205,10 +212,10 @@ void general_update(void)
         lv_label_set_text(guider_ui.general_label_1, buf);
     }
 
-    /* ========== 电池电压 ========== */
-    if (fabsf(d->batt_v - s_last_batt_v) > 0.1f) {
-        s_last_batt_v = d->batt_v;
-        snprintf(buf, sizeof(buf), "%.1f", d->batt_v);
+    /* ========== 平均功耗（自设备启动后） ========== */
+    if (fabsf(d->avg_kw - s_last_batt_v) > 0.1f) {
+        s_last_batt_v = d->avg_kw;
+        snprintf(buf, sizeof(buf), "%.1f", d->avg_kw);
         lv_label_set_text(guider_ui.general_label_2, buf);
     }
 

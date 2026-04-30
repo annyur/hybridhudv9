@@ -37,6 +37,14 @@ static int s_retry = 0;
 static int s_tx_fail = 0;
 static bool s_atz_ready = false;   /* 收到 > 提示符 */
 
+/* 平均功耗累计 */
+static float    s_power_integral = 0.0f;  /* 功率对时间的积分 (kW·ms) */
+static uint32_t s_energy_start_ms = 0;    /* OBD 启动时间戳 */
+static uint32_t s_energy_last_ms = 0;     /* 上次累加时间戳 */
+
+/* 收到响应后是否立即推进状态 */
+static bool s_rx_trigger = false;
+
 /* 解析 HEX */
 static int parse_hex(const char *resp, uint8_t *out, int max)
 {
@@ -90,7 +98,7 @@ static void parse_std(const char *resp)
 
     switch (pid) {
     case 0x0C:  if (n >= 4) { s_data.rpm = ((d[2]*256)+d[3])/4; } break;
-    case 0x0D:  if (n >= 3) { s_data.speed = d[2]; } break;
+    case 0x0D:  if (n >= 3) { s_data.speed = (int)(d[2] * 1.075f + 0.5f); } break;
     case 0x05:  if (n >= 3) { s_data.coolant = d[2]-40; } break;
     case 0x42:  if (n >= 4) { s_data.batt_v = ((d[2]*256)+d[3])*0.001f; } break;
     case 0x11:  if (n >= 3) { s_data.throttle = d[2]*100/255; } break;
@@ -102,7 +110,6 @@ static void parse_std(const char *resp)
 
 static bool is_prompt(const char *resp)
 {
-    /* ELM327 提示符 > 表示就绪 */
     return (resp[0] == '>' && resp[1] == '\0');
 }
 
@@ -114,29 +121,45 @@ static bool is_ok(const char *resp)
 static void handle_rx(const char *resp)
 {
     ESP_LOGI(TAG, "RX[%d]: '%s'", s_st, resp);
+    if (strstr(resp, "STOPPED")) {
+        /* 设备进入 STOPPED 状态，需要 ATZ 重新初始化 */
+        ESP_LOGW(TAG, "device STOPPED, reset to ATZ");
+        s_st = ST_INIT_ATZ;
+        s_wait = 0;
+        s_atz_ready = false;
+        return;
+    }
     if (strstr(resp, "NO DATA") || strstr(resp, "ERROR") || strstr(resp, "UNABLE") || strstr(resp, "?")) {
+        s_rx_trigger = true;  /* 错误也推进，避免卡死 */
         return;
     }
     if (is_prompt(resp)) {
         s_atz_ready = true;
+        s_rx_trigger = true;  /* > 提示符 = 设备就绪，推进 */
         return;
     }
     if (is_ok(resp)) {
-        /* AT 命令的 OK 响应，可提前进入下一步 */
+        /* 只有初始化命令靠 OK 推进；PID 阶段等 > 或数据 */
+        if (s_st < ST_PID_RPM) {
+            s_rx_trigger = true;
+        }
+        /* PID 阶段收到 OK 不推进 */
         return;
     }
     if (strstr(resp, "ELM327")) {
-        /* ATZ 后的版本信息，表示 ATZ 成功 */
         if (s_st == ST_INIT_ATZ) {
             s_atz_ready = true;
         }
+        s_rx_trigger = true;
         return;
     }
     if (strstr(resp, "SEARCHING")) {
-        /* 搜索协议中，等待后续行 */
-        return;
+        return;  /* 搜索中，不推进 */
     }
-    if (s_st >= ST_PID_RPM) parse_std(resp);
+    /* PID 数据：独立解析，不推进状态机（状态机靠 > 推进） */
+    if (s_st >= ST_PID_RPM) {
+        parse_std(resp);
+    }
 }
 
 static void next(void) { s_st++; if (s_st >= ST_COUNT) s_st = ST_PID_RPM; }
@@ -165,15 +188,17 @@ static const char *cmd_of(st_t st) {
 
 static int tof(st_t st)
 {
-    if (st == ST_INIT_ATZ) return 4000;      /* ATZ 复位需要更久 */
-    if (st <= ST_INIT_ATSH7E0) return 2000;  /* 初始化命令给 2s */
-    return 1000;                               /* PID 轮询 1s */
+    if (st == ST_INIT_ATZ) return 2000;      /* ATZ 复位 */
+    if (st <= ST_INIT_ATSH7E0) return 500;  /* 初始化命令 */
+    if (st == ST_PID_SPEED) return 100;      /* 车速高频 100ms */
+    return 1000;                              /* 其他 PID 1 秒 */
 }
 
 /* ========== 公共接口 ========== */
-void obd_init(void)  { memset(&s_data,0,sizeof(s_data)); s_running=false; s_st=ST_IDLE; s_atz_ready=false; elm_init(); }
-void obd_start(void) { if(s_running)return; s_running=true; s_st=ST_INIT_ATZ; s_retry=0; s_wait=0; s_tx_fail=0; s_atz_ready=false; ESP_LOGI(TAG,"start"); }
+void obd_init(void)  { memset(&s_data,0,sizeof(s_data)); s_running=false; s_st=ST_IDLE; s_atz_ready=false; s_rx_trigger=false; elm_init(); }
+void obd_start(void) { if(s_running)return; s_running=true; s_st=ST_INIT_ATZ; s_retry=0; s_wait=0; s_tx_fail=0; s_atz_ready=false; s_rx_trigger=false; s_power_integral=0.0f; s_energy_start_ms=lv_tick_get(); s_energy_last_ms=s_energy_start_ms; ESP_LOGI(TAG,"start"); }
 void obd_stop(void)  { s_running=false; s_st=ST_IDLE; ESP_LOGI(TAG,"stop"); }
+bool obd_is_running(void) { return s_running; }
 
 void obd_update(void)
 {
@@ -186,7 +211,27 @@ void obd_update(void)
 
     uint32_t now = lv_tick_get();
 
-    /* 收到 > 提示符或超时后推进状态 */
+    /* 累加功率对时间的积分，计算自启动后的平均功耗 */
+    if (s_energy_start_ms > 0 && s_energy_last_ms > 0) {
+        uint32_t dt = now - s_energy_last_ms;
+        if (dt > 0 && dt < 5000) {  /* 过滤异常跳变 */
+            s_power_integral += s_data.power_kw * dt;  /* kW·ms */
+            uint32_t total_ms = now - s_energy_start_ms;
+            if (total_ms > 0) {
+                s_data.avg_kw = s_power_integral / (float)total_ms;  /* kW·ms / ms = kW */
+            }
+        }
+        s_energy_last_ms = now;
+    }
+
+    /* 收到任何响应后立即推进状态（不等超时），但每轮只推进一次 */
+    if (s_rx_trigger && s_wait > 0) {
+        s_rx_trigger = false;
+        s_wait = 0;
+        next();
+    }
+
+    /* 超时兜底 */
     if (s_wait > 0 && (now - s_wait) > (uint32_t)tof(s_st)) {
         s_wait = 0;
         if (s_st <= ST_INIT_ATSH7E0) {
@@ -197,13 +242,6 @@ void obd_update(void)
         } else {
             next();
         }
-    }
-
-    /* 如果收到 > 提示符，且处于初始化阶段，可提前发下一条 */
-    if (s_atz_ready && s_wait > 0 && s_st < ST_PID_RPM) {
-        s_wait = 0;
-        s_atz_ready = false;
-        next();
     }
 
     /* 写失败暂停 */
