@@ -198,7 +198,6 @@ void bluetooth_update(void)
             refresh_list();
         }
     }
-}
 
 /* ========== 辅助函数 ========== */
 static void set_title_label(const char *text)
@@ -323,7 +322,6 @@ static void on_btn_scan(lv_event_t *e)
 
 static void on_list_item(lv_event_t *e)
 {
-    lv_obj_t *btn = lv_event_get_target(e);
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
 
     if (idx == -1) {
