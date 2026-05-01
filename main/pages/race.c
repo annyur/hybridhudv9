@@ -25,6 +25,16 @@ static bool s_boot_done = false;
 #define MAP_SCREEN_X(ay)   (-(ay))    /* 左右：取反 */
 #define MAP_SCREEN_Y(az)   (az)       /* 上下：取反 */
 
+#define G_SHAKE    0.03f   /* 震动补偿阈值：±0.03g 内视为零 */
+
+/* 震动死区补偿：±0.03g 范围内的微小波动归零 */
+static float shake_comp(float g)
+{
+    if (g > G_SHAKE) return g - G_SHAKE;
+    if (g < -G_SHAKE) return g + G_SHAKE;
+    return 0.0f;
+}
+
 /* 将加速度(g)映射到像素偏移，内圆放大外圆正常 */
 static float g_to_pixel(float g)
 {
@@ -200,8 +210,8 @@ update_label:
     {
         float ax, ay, az;
         if (hud_imu_get_accel(&ax, &ay, &az)) {
-            float g_x = MAP_SCREEN_X(ay) / 9.8f;
-            float g_y = MAP_SCREEN_Y(az) / 9.8f;
+            float g_x = shake_comp(MAP_SCREEN_X(ay) / 9.8f);
+            float g_y = shake_comp(MAP_SCREEN_Y(az) / 9.8f);
 
             /* 分段映射：内圆(0~0.3g)放大，外环(0.3~1.0g)正常 */
             float off_x = g_to_pixel(g_x);
