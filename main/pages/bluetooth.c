@@ -75,10 +75,10 @@ void bluetooth_auto_reconnect(void)
     if (s_state == 2 || s_state == 3) return;  /* 成功或放弃后不再尝试 */
 
     s_tick++;
-    if (s_tick < 200) return;     /* ~4s 等 NimBLE sync */
+    if (s_tick < 50) return;      /* ~1s 等 NimBLE 完全就绪 */
 
     if (!s_has_last) {
-        nvs_load_last_addr();
+        nvs_load_last_addr();      /* 提前加载地址 */
     }
 
     if (!s_has_last) {

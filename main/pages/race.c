@@ -25,17 +25,38 @@ static bool s_boot_done = false;
 #define MAP_SCREEN_X(ay)   (-(ay))    /* 左右：取反 */
 #define MAP_SCREEN_Y(az)   (az)       /* 上下：取反 */
 
-#define G_SHAKE    0.03f   /* 震动补偿阈值：±0.03g 内视为零 */
+/* 动态死区：基础 0.08g，根据变化率自动缩放 */
+#define G_DEAD_BASE  0.08f   /* 静止/微震时死区 */
+#define G_DEAD_MIN   0.02f   /* 大幅转弯时死区 */
 
-/* 震动死区补偿：±0.03g 范围内的微小波动归零 */
-static float shake_comp(float g)
+/* EMA 低通滤波系数：0.3 = 每帧向目标移动 30%，形成惯性拖尾 */
+#define G_EMA_ALPHA  0.30f
+
+static float s_gx_ema = 0.0f;   /* 滤波后的 Gx */
+static float s_gy_ema = 0.0f;   /* 滤波后的 Gy */
+static float s_gx_prev = 0.0f; /* 上一帧原始值（用于计算 jerk） */
+static float s_gy_prev = 0.0f;
+
+/* 动态死区补偿：根据变化率自动调整
+   - 变化率小（<0.01g/帧）→ 死区扩大到 0.08g，过滤路面微震
+   - 变化率大（>0.05g/帧）→ 死区缩小到 0.02g，让真实转弯响应更快 */
+static float shake_comp(float g, float jerk)
 {
-    if (g > G_SHAKE) return g - G_SHAKE;
-    if (g < -G_SHAKE) return g + G_SHAKE;
+    float dead;
+    if (jerk > 0.05f)       dead = G_DEAD_MIN;        /* 急转 */
+    else if (jerk > 0.02f)  dead = G_DEAD_BASE * 0.5f; /* 中等 */
+    else                    dead = G_DEAD_BASE;         /* 静止/微震 */
+
+    if (g > dead)  return g - dead;
+    if (g < -dead) return g + dead;
     return 0.0f;
 }
 
-/* 将加速度(g)映射到像素偏移，内圆放大外圆正常 */
+/* EMA 低通滤波：让 G 点有惯性，微小抖动被平滑 */
+static float ema_filter(float ema, float raw)
+{
+    return ema * (1.0f - G_EMA_ALPHA) + raw * G_EMA_ALPHA;
+}
 static float g_to_pixel(float g)
 {
     float abs_g = g < 0 ? -g : g;
@@ -64,6 +85,8 @@ static lv_obj_t ** const s_arcs[4] = {
 };
 
 static int   s_last_speed = -1;
+static int   s_display_speed = -1;
+static float s_speed_frac = 0.0f;  /* 浮点累积器：0→100 极限 7 秒 */
 static float s_last_kw = -999.0f;
 static int   s_last_time_mm = -1;
 static float s_last_color_kw = -999.0f;
@@ -122,14 +145,36 @@ void race_boot_animation(void)
 void race_enter(void)
 {
     s_active = true;
-    s_boot_done = true;   /* 跳过开机动画，直接允许 arc 和 G-force 更新 */
-    /* 首次进入时才重置动画状态，之后切回来不再重复播放 */
-    static bool s_first_enter = true;
-    if (s_first_enter) {
-        s_first_enter = false;
-        s_boot_start = 0;
-        s_breath_tick = 0;
+    s_boot_done = true;
+    s_display_speed = -1;
+    s_speed_frac = 0.0f;
+    s_gx_ema = s_gy_ema = 0.0f;
+    s_gx_prev = s_gy_prev = 0.0f;
+
+    /* 删除 GUI Guider 可能启动的 arc 默认动画，防止覆盖 OBD 实时数据 */
+    lv_anim_del(guider_ui.race_arc_4, NULL);
+    lv_anim_del(guider_ui.race_arc_5, NULL);
+    lv_anim_del(guider_ui.race_arc_6, NULL);
+    lv_anim_del(guider_ui.race_arc_7, NULL);
+
+    /* 立即恢复 G 点不透明，防止呼吸动画残留 */
+    lv_obj_set_style_opa(guider_ui.race_label_G_piont, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    /* 强制结束 boot 动画，确保切回来不再播放 sweep */
+    s_boot_start = 0xFFFFFFFF;
+
+    /* 立即同步到当前 OBD 数据，避免 arc 停留在动画残留值 */
+    const obd_data_t *d = obd_get_data();
+    if (d) {
+        set_arcs_value(d->speed);
+        s_last_speed = d->speed;
+        s_display_speed = d->speed;
+        s_speed_frac = 0.0f;
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%02d", d->speed);
+        lv_label_set_text(guider_ui.race_label_speed_number, buf);
     }
+
     hud_imu_calibrate();
 }
 
@@ -210,12 +255,25 @@ update_label:
     {
         float ax, ay, az;
         if (hud_imu_get_accel(&ax, &ay, &az)) {
-            float g_x = shake_comp(MAP_SCREEN_X(ay) / 9.8f);
-            float g_y = shake_comp(MAP_SCREEN_Y(az) / 9.8f);
+            float raw_x = MAP_SCREEN_X(ay) / 9.8f;
+            float raw_y = MAP_SCREEN_Y(az) / 9.8f;
+
+            /* 计算变化率（jerk） */
+            float jerk_x = raw_x - s_gx_prev;
+            float jerk_y = raw_y - s_gy_prev;
+            float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
+            s_gx_prev = raw_x;
+            s_gy_prev = raw_y;
+
+            /* 动态死区 + EMA 低通滤波 */
+            float filt_x = shake_comp(raw_x, jerk);
+            float filt_y = shake_comp(raw_y, jerk);
+            s_gx_ema = ema_filter(s_gx_ema, filt_x);
+            s_gy_ema = ema_filter(s_gy_ema, filt_y);
 
             /* 分段映射：内圆(0~0.3g)放大，外环(0.3~1.0g)正常 */
-            float off_x = g_to_pixel(g_x);
-            float off_y = g_to_pixel(g_y);
+            float off_x = g_to_pixel(s_gx_ema);
+            float off_y = g_to_pixel(s_gy_ema);
 
             float px = G_CENTER_X + off_x - 10.0f;
             float py = G_CENTER_Y + off_y - 10.0f;
@@ -227,13 +285,13 @@ update_label:
 
             lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
 
-            snprintf(buf, sizeof(buf), "%.2f", g_y < 0 ? -g_y : 0.0f);
+            snprintf(buf, sizeof(buf), "%.2f", s_gy_ema < 0 ? -s_gy_ema : 0.0f);
             lv_label_set_text(guider_ui.race_label_top, buf);
-            snprintf(buf, sizeof(buf), "%.2f", g_y > 0 ? g_y : 0.0f);
+            snprintf(buf, sizeof(buf), "%.2f", s_gy_ema > 0 ? s_gy_ema : 0.0f);
             lv_label_set_text(guider_ui.race_label_down, buf);
-            snprintf(buf, sizeof(buf), "%.2f", g_x < 0 ? -g_x : 0.0f);
+            snprintf(buf, sizeof(buf), "%.2f", s_gx_ema < 0 ? -s_gx_ema : 0.0f);
             lv_label_set_text(guider_ui.race_label_left, buf);
-            snprintf(buf, sizeof(buf), "%.2f", g_x > 0 ? g_x : 0.0f);
+            snprintf(buf, sizeof(buf), "%.2f", s_gx_ema > 0 ? s_gx_ema : 0.0f);
             lv_label_set_text(guider_ui.race_label_right, buf);
         }
     }
@@ -244,9 +302,31 @@ update_label:
     update_arc_colors(d->power_kw);
 
     if (d->speed != s_last_speed) {
-        s_last_speed = d->speed;
-        set_arcs_value(d->speed);
-        snprintf(buf, sizeof(buf), "%02d", d->speed);
+        s_last_speed = d->speed;  /* 目标值已变 */
+    }
+    if (s_display_speed < 0) {
+        s_display_speed = s_last_speed;  /* 首次直接跳到目标值 */
+        s_speed_frac = 0.0f;
+    }
+    if (s_display_speed != s_last_speed) {
+        int diff = s_last_speed - s_display_speed;
+        /* 每帧固定增加 0.356：100÷(8.5s×33帧) = 100÷280.5 ≈ 0.356 */
+        float rate = 100.0f / 280.5f;
+        if (diff < 0) rate = -rate;
+        s_speed_frac += rate;
+        if (s_speed_frac >= 1.0f || s_speed_frac <= -1.0f) {
+            int step = (int)s_speed_frac;
+            s_display_speed += step;
+            s_speed_frac -= step;
+        }
+        /* 防止过冲 */
+        if ((diff > 0 && s_display_speed > s_last_speed) ||
+            (diff < 0 && s_display_speed < s_last_speed)) {
+            s_display_speed = s_last_speed;
+            s_speed_frac = 0.0f;
+        }
+        set_arcs_value(s_display_speed);
+        snprintf(buf, sizeof(buf), "%02d", s_display_speed);
         lv_label_set_text(guider_ui.race_label_speed_number, buf);
     }
     if (fabsf(d->power_kw - s_last_kw) > 0.1f) {

@@ -70,6 +70,8 @@ void general_boot_animation(void)
 
 /* 上次的值，用于减少不必要的刷新 */
 static int   s_last_rpm     = -1;
+static int   s_display_speed = -1;
+static float s_speed_frac    = 0.0f;  /* 浮点累积器：0→100 极限 7 秒 */
 static int   s_last_speed   = -1;
 static int   s_last_coolant = -1;
 static int   s_last_oil     = -1;
@@ -84,9 +86,27 @@ static float s_last_slider_kw = -999.0f;
 void general_enter(void)
 {
     s_active = true;
-    s_boot_done = true;   /* 跳过开机动画，直接允许 arc 更新 */
+    s_boot_done = true;
+
+    /* 删除 GUI Guider 可能启动的 arc 默认动画，防止覆盖 OBD 实时数据 */
+    lv_anim_del(guider_ui.general_arc_rpm,   NULL);
+    lv_anim_del(guider_ui.general_arc_speed,  NULL);
+    lv_anim_del(guider_ui.general_arc_oil,    NULL);
+    lv_anim_del(guider_ui.general_arc_energy, NULL);
+
+    /* 立即同步到当前 OBD 数据，避免 arc 停留在动画残留值 */
+    const obd_data_t *d = obd_get_data();
+    if (d) {
+        lv_arc_set_value(guider_ui.general_arc_rpm,   d->rpm);
+        lv_arc_set_value(guider_ui.general_arc_speed,  d->speed);
+        lv_arc_set_value(guider_ui.general_arc_oil,    d->oil > 100 ? 100 : (d->oil < 0 ? 0 : d->oil));
+        lv_arc_set_value(guider_ui.general_arc_energy, (int)(d->epa_soc));
+    }
+
     /* 重置 OBD 刷新标记，确保切回来后立即刷新 */
     s_last_rpm = s_last_speed = s_last_coolant = s_last_oil = s_last_soc = -1;
+    s_display_speed = -1;
+    s_speed_frac = 0.0f;
     s_last_kw = s_last_slider_kw = -999.0f;
     s_last_dist = -1;
     s_last_batt_v = -1.0f;
@@ -111,10 +131,7 @@ void general_update(void)
     /* ========== 转速表 ========== */
     if (d->rpm != s_last_rpm) {
         s_last_rpm = d->rpm;
-        /* 动画播放期间不覆盖 arc，动画结束后自然归 0 */
-        if (s_boot_done) {
-            lv_arc_set_value(guider_ui.general_arc_rpm, d->rpm);
-        }
+        lv_arc_set_value(guider_ui.general_arc_rpm, d->rpm);
         if (d->rpm == 0) {
             lv_label_set_text(guider_ui.general_label_rpm_number, "");
         } else {
@@ -123,13 +140,33 @@ void general_update(void)
         }
     }
 
-    /* ========== 车速表 ========== */
+    /* ========== 车速表（固定速率动画：0→100 极限 7 秒 ≈ 0.433/帧） ========== */
     if (d->speed != s_last_speed) {
-        s_last_speed = d->speed;
-        if (s_boot_done) {
-            lv_arc_set_value(guider_ui.general_arc_speed, d->speed);
+        s_last_speed = d->speed;  /* 目标值已变 */
+    }
+    if (s_display_speed < 0) {
+        s_display_speed = s_last_speed;  /* 首次直接跳到目标值 */
+        s_speed_frac = 0.0f;
+    }
+    if (s_display_speed != s_last_speed) {
+        int diff = s_last_speed - s_display_speed;
+        /* 每帧固定增加 0.356：100÷(8.5s×33帧) = 100÷280.5 ≈ 0.356 */
+        float rate = 100.0f / 280.5f;
+        if (diff < 0) rate = -rate;
+        s_speed_frac += rate;
+        if (s_speed_frac >= 1.0f || s_speed_frac <= -1.0f) {
+            int step = (int)s_speed_frac;
+            s_display_speed += step;
+            s_speed_frac -= step;
         }
-        snprintf(buf, sizeof(buf), "%02d", d->speed);
+        /* 防止过冲 */
+        if ((diff > 0 && s_display_speed > s_last_speed) ||
+            (diff < 0 && s_display_speed < s_last_speed)) {
+            s_display_speed = s_last_speed;
+            s_speed_frac = 0.0f;
+        }
+        lv_arc_set_value(guider_ui.general_arc_speed, s_display_speed);
+        snprintf(buf, sizeof(buf), "%02d", s_display_speed);
         lv_label_set_text(guider_ui.general_label_speed_number, buf);
     }
 
