@@ -181,14 +181,29 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
         s_conn_handle = event->connect.conn_handle;
         ESP_LOGI(TAG, "connected, handle=%d", s_conn_handle);
 
-        /* 复位发现状态机 */
+        /* ===== 优化：OBDLink MX+ 固定 handle，跳过 GATT discovery（省 ~3 秒） ===== */
+        s_notify_handle = 0x0016;
+        s_write_handle  = 0x0019;
+        s_cccd_handle   = 0x0017;
+
+        uint8_t v[2] = {0x01, 0x00};
+        int rc = ble_gattc_write_flat(s_conn_handle, s_cccd_handle, v, 2, NULL, NULL);
+        if (rc == 0) {
+            s_notify_enabled = true;
+            s_disc_state = DISC_DONE;
+            ESP_LOGI(TAG, "hardcode handle OK, skip discovery");
+            return 0;
+        }
+
+        /* 回退：notify enable 失败时走全量 discovery（兼容其他 BLE-OBD 设备） */
+        ESP_LOGW(TAG, "hardcode fail, fallback to discovery");
+        s_notify_handle = 0; s_write_handle = 0; s_cccd_handle = 0;
         s_disc_state = DISC_SVC;
         s_svc_count = 0; s_cur_svc = 0;
         s_chr_count = 0; s_cur_chr = 0;
         s_notify_enabled = false;
 
-        /* 启动 GATT 发现 */
-        int rc = ble_gattc_disc_all_svcs(s_conn_handle, gatt_svc_event, NULL);
+        rc = ble_gattc_disc_all_svcs(s_conn_handle, gatt_svc_event, NULL);
         if (rc != 0) {
             ESP_LOGE(TAG, "disc_all_svcs rc=%d", rc);
         }

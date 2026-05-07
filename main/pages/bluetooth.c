@@ -1,9 +1,10 @@
-/* bluetooth.c — Bluetooth 界面业务（修复：回连重试 + 退出不卡死） */
+/* bluetooth.c — Bluetooth 界面业务（修复：事件注册移出切换路径，防止卡死） */
 #include "bluetooth.h"
 #include "ble.h"
 #include "scan.h"
 #include "conn.h"
 #include "host/ble_gap.h"
+#include "screen.h"
 #include "gui_guider.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -27,15 +28,17 @@ static bool    s_has_last = false;
 static bool s_active = false;
 static int  s_last_count = -1;
 static int  s_enter_tick = 0;
-static bool s_list_inited = false;
+static bool s_ui_inited = false;
 static bool s_was_connected = false;
 static int  s_conn_idx = -1;
 
 /* 函数前向声明 */
 static void refresh_list(void);
 static void on_btn_scan(lv_event_t *e);
+static void on_btn_back(lv_event_t *e);
 static void on_list_item(lv_event_t *e);
 static void set_title_label(const char *text);
+static void set_btn_style(lv_obj_t *btn);
 
 /* ========== NVS：上次连接地址 ========== */
 static void nvs_save_last_addr(const uint8_t *addr)
@@ -65,6 +68,31 @@ static void nvs_load_last_addr(void)
     }
 }
 
+/* ========== UI 初始化（screen_init 时调用一次，绝不在 screen_switch 路径中） ========== */
+void bluetooth_ui_init(void)
+{
+    if (s_ui_inited) return;
+    s_ui_inited = true;
+
+    ESP_LOGI(TAG, "ui_init start");
+
+    /* 移除 GUI Guider 创建的默认 item */
+    if (guider_ui.bluetooth_bt_list_devices_item0) {
+        lv_obj_del(guider_ui.bluetooth_bt_list_devices_item0);
+        guider_ui.bluetooth_bt_list_devices_item0 = NULL;
+    }
+
+    /* 注册事件回调 — 必须在 LVGL 锁内，但必须在非切换路径中调用 */
+    if (guider_ui.bluetooth_bt_btn_scan) {
+        lv_obj_add_event_cb(guider_ui.bluetooth_bt_btn_scan, on_btn_scan, LV_EVENT_CLICKED, NULL);
+    }
+    if (guider_ui.bluetooth_btn_back) {
+        lv_obj_add_event_cb(guider_ui.bluetooth_btn_back, on_btn_back, LV_EVENT_CLICKED, NULL);
+    }
+
+    ESP_LOGI(TAG, "ui_init done");
+}
+
 /* ========== 后台自动回连（main.c 循环调用，无需进入界面） ========== */
 void bluetooth_auto_reconnect(void)
 {
@@ -75,7 +103,7 @@ void bluetooth_auto_reconnect(void)
     if (s_state == 2 || s_state == 3) return;  /* 成功或放弃后不再尝试 */
 
     s_tick++;
-    if (s_tick < 50) return;      /* ~1s 等 NimBLE 完全就绪 */
+    if (s_tick < 10) return;      /* ~1s 等 NimBLE 完全就绪 */
 
     if (!s_has_last) {
         nvs_load_last_addr();      /* 提前加载地址 */
@@ -112,18 +140,6 @@ void bluetooth_enter(void)
     /* 加载上次连接地址 */
     if (!s_has_last) {
         nvs_load_last_addr();
-    }
-
-    /* 初始化列表（只清一次） */
-    if (!s_list_inited) {
-        s_list_inited = true;
-        /* 移除 GUI Guider 创建的默认 item */
-        if (guider_ui.bluetooth_bt_list_devices_item0) {
-            lv_obj_del(guider_ui.bluetooth_bt_list_devices_item0);
-            guider_ui.bluetooth_bt_list_devices_item0 = NULL;
-        }
-        /* 添加事件回调 */
-        lv_obj_add_event_cb(guider_ui.bluetooth_bt_btn_scan, on_btn_scan, LV_EVENT_CLICKED, NULL);
     }
 
     /* 蓝牙默认启用，进入界面自动开始扫描 */
@@ -166,38 +182,38 @@ void bluetooth_update(void)
         }
     }
 
-        /* 连接状态变化 */
-        bool now_connected = ble_is_connected();
-        if (now_connected != s_was_connected) {
-            s_was_connected = now_connected;
-            if (now_connected) {
-                /* 找到已连接设备的索引 */
-                const uint8_t *ca = conn_get_connected_addr();
-                s_conn_idx = -1;
-                if (ca) {
-                    /* 保存到 NVS */
-                    nvs_save_last_addr(ca);
-                    memcpy(s_last_addr, ca, 6);
-                    s_has_last = true;
+    /* 连接状态变化 */
+    bool now_connected = ble_is_connected();
+    if (now_connected != s_was_connected) {
+        s_was_connected = now_connected;
+        if (now_connected) {
+            /* 找到已连接设备的索引 */
+            const uint8_t *ca = conn_get_connected_addr();
+            s_conn_idx = -1;
+            if (ca) {
+                /* 保存到 NVS */
+                nvs_save_last_addr(ca);
+                memcpy(s_last_addr, ca, 6);
+                s_has_last = true;
 
-                    for (int i = 0; i < scan_get_count(); i++) {
-                        const scan_device_t *d = scan_get_device(i);
-                        if (d && memcmp(d->addr, ca, 6) == 0) {
-                            s_conn_idx = i;
-                            break;
-                        }
+                for (int i = 0; i < scan_get_count(); i++) {
+                    const scan_device_t *d = scan_get_device(i);
+                    if (d && memcmp(d->addr, ca, 6) == 0) {
+                        s_conn_idx = i;
+                        break;
                     }
                 }
-                set_title_label("Connected");
-                ESP_LOGI(TAG, "connected, idx=%d", s_conn_idx);
-            } else {
-                s_conn_idx = -1;
-                ESP_LOGI(TAG, "disconnected");
-                set_title_label("Scanning...");
             }
-            refresh_list();
+            set_title_label("Connected");
+            ESP_LOGI(TAG, "connected, idx=%d", s_conn_idx);
+        } else {
+            s_conn_idx = -1;
+            ESP_LOGI(TAG, "disconnected");
+            set_title_label("Scanning...");
         }
+        refresh_list();
     }
+}
 
 /* ========== 辅助函数 ========== */
 static void set_title_label(const char *text)
@@ -319,6 +335,12 @@ static void on_btn_scan(lv_event_t *e)
     }
 }
 
+static void on_btn_back(lv_event_t *e)
+{
+    (void)e;
+    ESP_LOGI(TAG, "back btn → switch to RACE");
+    screen_switch(SCREEN_RACE);
+}
 
 static void on_list_item(lv_event_t *e)
 {

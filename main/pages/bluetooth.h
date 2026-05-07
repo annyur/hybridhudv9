@@ -6,14 +6,10 @@
 extern "C" {
 #endif
 
+void bluetooth_ui_init(void);   /* screen_init 时调用一次，注册事件回调 */
 void bluetooth_enter(void);
 void bluetooth_exit(void);
 void bluetooth_update(void);
-
-/* 开机动画 */
-void general_boot_animation(void);
-
-/* 后台自动回连（由 main.c 循环调用，无需进入界面） */
 void bluetooth_auto_reconnect(void);
 
 #ifdef __cplusplus

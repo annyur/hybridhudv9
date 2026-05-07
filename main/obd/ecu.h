@@ -1,33 +1,34 @@
-/* ecu.h — ECU DID 配置 */
+/* ecu.h — ECU UDS DID 接口 */
 #ifndef ECU_H
 #define ECU_H
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "obd.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef void (*ecu_parser_t)(uint16_t did, const uint8_t *d, int len, obd_data_t *out);
-
-typedef struct {
-    const char *name;
-    uint16_t tx_addr;
-    uint16_t rx_addr;
-    const uint16_t *dids;
-    int did_count;
-    ecu_parser_t parser;
-    bool needs_session;
-} ecu_profile_t;
-
-extern const ecu_profile_t ecu_bms;
-extern const ecu_profile_t ecu_sgcm;
-
 void ecu_init(void);
-void ecu_parse_bms(uint16_t did, const uint8_t *d, int len, obd_data_t *out);
-void ecu_parse_sgcm(uint16_t did, const uint8_t *d, int len, obd_data_t *out);
+void ecu_enter_pid(void);
+
+/* 查询下一个该发的 DID（消耗队列）
+ * 返回 true: 有 DID 待发，did 和 addr 被填充
+ * 返回 false: 无 DID 待发（周期未到或 pending 未清除） */
+bool ecu_get_next_did(uint16_t *did, const char **addr);
+
+/* 偷看下一个 DID（不消耗队列）
+ * 用于 obd.c 判断下一个 DID 是否与当前地址相同，决定是否跳过 ATSH7E0 切换 */
+bool ecu_peek_next_did(uint16_t *did, const char **addr);
+
+/* 标记 DID 已发出，设置 pending 锁 */
+void ecu_set_pending(uint16_t did);
+
+/* 解除 pending 锁（响应到达或超时时调用） */
+void ecu_clear_pending(void);
+
+/* 解析 UDS 正响应（由 obd.c 的 handle_rx 调用） */
+void ecu_parse_uds(const char *resp);
 
 #ifdef __cplusplus
 }

@@ -1,1 +1,1 @@
-GEN_CSRCS += lv_font_OPPOSans_Medium_26.c lv_font_OPPOSans_Medium_32.c lv_font_OPPOSans_Medium_24.c lv_font_OPPOSans_Bold_72.c lv_font_OPPOSans_Bold_68.c lv_font_OPPOSans_Medium_20.c lv_font_OPPOSans_Medium_18.c lv_font_OPPOSans_Medium_36.c lv_font_OPPOSans_Medium_16.c lv_font_montserratMedium_16.c
+GEN_CSRCS += lv_font_OPPOSans_Medium_18.c lv_font_OPPOSans_Bold_58.c lv_font_OPPOSans_Medium_36.c lv_font_OPPOSans_Medium_16.c lv_font_montserratMedium_16.c

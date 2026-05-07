@@ -2,9 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "screen.c"
-        "pages/general.c"
         "pages/race.c"
-        "pages/setting.c"
         "pages/bluetooth.c"
         "obd/obd.c"
         "obd/elm.c"
@@ -12,6 +10,7 @@ idf_component_register(
         "ble/ble.c"
         "ble/scan.c"
         "ble/conn.c"
+        "hw/key.c"
         "hw/board.c"
         "hw/imu.c"
         "hw/rtc.c"
@@ -22,26 +21,17 @@ idf_component_register(
         "ui/generated/gui_guider.c"
         "ui/generated/events_init.c"
         "ui/generated/widgets_init.c"
-        "ui/generated/setup_scr_general.c"
         "ui/generated/setup_scr_race.c"
-        "ui/generated/setup_scr_setting.c"
         "ui/generated/setup_scr_bluetooth.c"
         "ui/generated/guider_fonts/lv_font_montserratMedium_16.c"
         "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_16.c"
         "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_18.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_20.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_24.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_26.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_32.c"
         "ui/generated/guider_fonts/lv_font_OPPOSans_Medium_36.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Bold_68.c"
-        "ui/generated/guider_fonts/lv_font_OPPOSans_Bold_72.c"
+        "ui/generated/guider_fonts/lv_font_OPPOSans_Bold_58.c"
         "ui/generated/images/_Gforce_RGB565A8_320x320.c"
-        "ui/generated/images/_bg_RGB565A8_300x300.c"
-        "ui/generated/images/_e_RGB565A8_20x20.c"
+        "ui/generated/images/_e_RGB565A8_24x18.c"
         "ui/generated/images/_o_RGB565A8_20x18.c"
-        "ui/generated/images/_tempunit_RGB565A8_16x14.c"
-        "ui/generated/images/_tempunit_RGB565A8_20x19.c"
+        "ui/generated/images/_tempunit_RGB565A8_18x16.c"
     INCLUDE_DIRS
         "."
         "pages"
@@ -52,4 +42,13 @@ idf_component_register(
         "ui/generated"
         "ui/generated/guider_fonts"
         "ui/generated/images"
+    REQUIRES
+        lvgl
+        esp_lvgl_adapter
+        nvs_flash
+        bt
+        driver
+    PRIV_REQUIRES
+        esp_timer
+        esp_wifi
 )

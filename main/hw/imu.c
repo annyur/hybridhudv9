@@ -1,4 +1,4 @@
-/* imu.c — QMI8658 IMU */
+/* imu.c — QMI8658 IMU（启动加速：零点采集更快） */
 #include "imu.h"
 #include "board.h"
 #include "qmi8658.h"
@@ -15,16 +15,16 @@ static float s_ax0 = 0.0f;
 static float s_ay0 = 0.0f;
 static float s_az0 = 0.0f;
 
-/* 采集零点 */
+/* 采集零点（优化：10 样本 + 3ms 间隔，约 50ms 完成） */
 static void capture_zero(void)
 {
     float sum_x = 0.0f, sum_y = 0.0f, sum_z = 0.0f;
     int valid = 0;
 
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 10; i++) {   /* ← 从 30 减到 10 */
         bool ready = false;
         if (qmi8658_is_data_ready(&s_imu, &ready) != ESP_OK || !ready) {
-            vTaskDelay(pdMS_TO_TICKS(5));
+            vTaskDelay(pdMS_TO_TICKS(3));  /* ← 从 5ms 减到 3ms */
             continue;
         }
         qmi8658_data_t data;
@@ -34,7 +34,7 @@ static void capture_zero(void)
             sum_z += data.accelZ;
             valid++;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(3));  /* ← 从 5ms 减到 3ms */
     }
 
     if (valid > 0) {

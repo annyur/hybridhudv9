@@ -1,4 +1,4 @@
-/* screen.h — 界面路由 */
+/* screen.h -- 界面路由 */
 #ifndef SCREEN_H
 #define SCREEN_H
 
@@ -7,9 +7,7 @@ extern "C" {
 #endif
 
 typedef enum {
-    SCREEN_GENERAL = 0,
-    SCREEN_RACE,
-    SCREEN_SETTING,
+    SCREEN_RACE = 0,
     SCREEN_BLUETOOTH,
     SCREEN_COUNT
 } screen_id_t;

@@ -19,45 +19,20 @@ extern "C" {
 typedef struct
 {
   
-	lv_obj_t *general;
-	bool general_del;
-	lv_obj_t *general_img_1;
-	lv_obj_t *general_arc_rpm;
-	lv_obj_t *general_arc_speed;
-	lv_obj_t *general_arc_oil;
-	lv_obj_t *general_arc_energy;
-	lv_obj_t *general_label_rpm_number;
-	lv_obj_t *general_label_time;
-	lv_obj_t *general_label_temp;
-	lv_obj_t *general_slider_energy;
-	lv_obj_t *general_label_speed_number;
-	lv_obj_t *general_label_energy_number;
-	lv_obj_t *general_label_energy_number_2;
-	lv_obj_t *general_label_oil_number;
-	lv_obj_t *general_label_trip;
-	lv_obj_t *general_img_temp;
-	lv_obj_t *general_label_1;
-	lv_obj_t *general_label_2;
-	lv_obj_t *general_label_3;
-	lv_obj_t *general_label_4;
-	lv_obj_t *general_label_5;
-	lv_obj_t *general_label_6;
-	lv_obj_t *general_label_unit_kw;
 	lv_obj_t *race;
 	bool race_del;
 	lv_obj_t *race_img_1;
+	lv_obj_t *race_line_2;
+	lv_obj_t *race_line_1;
 	lv_obj_t *race_label_top;
 	lv_obj_t *race_label_down;
 	lv_obj_t *race_label_left;
 	lv_obj_t *race_label_right;
-	lv_obj_t *race_arc_4;
 	lv_obj_t *race_arc_5;
 	lv_obj_t *race_arc_6;
 	lv_obj_t *race_arc_7;
-	lv_obj_t *race_label_speed_number;
-	lv_obj_t *race_label_kw;
 	lv_obj_t *race_label_energy_number;
-	lv_obj_t *race_label_time;
+	lv_obj_t *race_label_kw;
 	lv_obj_t *race_img_2;
 	lv_obj_t *race_img_3;
 	lv_obj_t *race_img_4;
@@ -65,14 +40,6 @@ typedef struct
 	lv_obj_t *race_label_1;
 	lv_obj_t *race_label_2;
 	lv_obj_t *race_label_G_piont;
-	lv_obj_t *setting;
-	bool setting_del;
-	lv_obj_t *setting_label_1;
-	lv_obj_t *setting_btn_2;
-	lv_obj_t *setting_btn_2_label;
-	lv_obj_t *setting_btn_3;
-	lv_obj_t *setting_btn_3_label;
-	lv_obj_t *setting_cont_1;
 	lv_obj_t *bluetooth;
 	bool bluetooth_del;
 	lv_obj_t *bluetooth_bt_label_title;
@@ -109,24 +76,15 @@ void init_keyboard(lv_ui *ui);
 extern lv_ui guider_ui;
 
 
-void setup_scr_general(lv_ui *ui);
 void setup_scr_race(lv_ui *ui);
-void setup_scr_setting(lv_ui *ui);
 void setup_scr_bluetooth(lv_ui *ui);
-LV_IMAGE_DECLARE(_bg_RGB565A8_300x300);
-LV_IMAGE_DECLARE(_tempunit_RGB565A8_20x19);
 LV_IMAGE_DECLARE(_Gforce_RGB565A8_320x320);
 LV_IMAGE_DECLARE(_o_RGB565A8_20x18);
-LV_IMAGE_DECLARE(_e_RGB565A8_20x20);
-LV_IMAGE_DECLARE(_tempunit_RGB565A8_16x14);
+LV_IMAGE_DECLARE(_e_RGB565A8_24x18);
+LV_IMAGE_DECLARE(_tempunit_RGB565A8_18x16);
 
-LV_FONT_DECLARE(lv_font_OPPOSans_Medium_26)
-LV_FONT_DECLARE(lv_font_OPPOSans_Medium_32)
-LV_FONT_DECLARE(lv_font_OPPOSans_Medium_24)
-LV_FONT_DECLARE(lv_font_OPPOSans_Bold_72)
-LV_FONT_DECLARE(lv_font_OPPOSans_Bold_68)
-LV_FONT_DECLARE(lv_font_OPPOSans_Medium_20)
 LV_FONT_DECLARE(lv_font_OPPOSans_Medium_18)
+LV_FONT_DECLARE(lv_font_OPPOSans_Bold_58)
 LV_FONT_DECLARE(lv_font_OPPOSans_Medium_36)
 LV_FONT_DECLARE(lv_font_OPPOSans_Medium_16)
 LV_FONT_DECLARE(lv_font_montserratMedium_16)
