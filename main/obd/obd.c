@@ -8,6 +8,10 @@
  *   3. ISO-TP 多帧拼接: SF/FF/CF 自动组装
  *   4. UDS DID 分发: 识别 62/7A9/7EF 响应, 回调 ecu_parse_uds()
  *
+ * 非阻塞数据同步:
+ *   - OBD 任务收集数据后发送到消息队列
+ *   - UI 任务从队列非阻塞接收，队列为空时立即返回
+ *
  * 车辆: Mazda EZ-6 / 长安深蓝 SL03 (VIN: LVRHDCEM3SN021133)
  * 协议: ISO 15765-4 CAN 11-bit 500kbps (ATSP6)
  */
@@ -17,6 +21,8 @@
 #include "ble.h"
 #include "esp_log.h"
 #include "lvgl.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -26,6 +32,13 @@
 static const char *TAG = "OBD";
 static obd_data_t s_data = {0};
 static bool s_running = false;
+
+/* ---------- 消息队列 ---------- */
+#define OBD_QUEUE_LENGTH  8   /* 队列长度 */
+#define OBD_QUEUE_ITEM_SIZE sizeof(obd_data_t)
+static QueueHandle_t s_obd_queue = NULL;
+static uint32_t s_last_send_ms = 0;
+#define OBD_QUEUE_SEND_INTERVAL_MS 20  /* 发送间隔，从50ms减少到20ms，降低数据传输延迟 */
 
 /* ---------- 状态机定义 ---------- */
 typedef enum {
@@ -73,16 +86,24 @@ static char s_ecu_current_addr[8];  /* 当前 ECU 地址（如 "7A1"），用于
 
 /* ECU burst 限制: 每个PID轮次中ECU最多连续发N个DID，防止ECU阶段过长导致车速刷新延迟 */
 static int s_ecu_burst_cnt = 0;
-static int s_ecu_burst_max = 2;  /* 当前轮次的burst上限，fast=1 slow=2 */
+static int s_ecu_burst_max = 1;  /* 当前轮次的burst上限，减少到1以减轻OBD设备负担 */
 
 /* 命令间隔控制 */
-#define PID_MIN_INTERVAL  100    /* PID 阶段最小间隔 ms（原200ms太慢） */
-#define INIT_MIN_INTERVAL 60     /* init 阶段最小间隔 ms */
+#define PID_MIN_INTERVAL  150    /* PID 阶段最小间隔 ms（增加到150ms，减少OBD设备压力） */
+#define INIT_MIN_INTERVAL 100    /* init 阶段最小间隔 ms（增加到100ms，提高初始化稳定性） */
 static uint32_t s_last_tx_ms = 0;
 
 /* 双速轮询 */
 static int s_slow_tick = 0;
 #define SLOW_EVERY 4              /* 每4轮做一次慢轮全量 */
+
+/* 冷却液温度轮询控制 - 降低频率，非关键数据 */
+static int s_coolant_tick = 0;
+#define COOLANT_EVERY 8           /* 每8个slow round才轮询一次冷却液温度 */
+
+/* 响应缓存 - 用于检测重复数据，避免重复解析 */
+static char s_last_pid_resp[64];  /* 缓存上次 PID 响应 */
+static char s_last_ecu_resp[64];  /* 缓存上次 ECU DID 响应 */
 
 /* ---------- ISO-TP 多帧拼接器 ---------- */
 #define TP_MAX_SLOTS 8
@@ -500,6 +521,38 @@ static bool is_echo(const char *resp)
  * 5. 错误/提示处理 (STOPPED / NO DATA / > / OK) */
 static void handle_rx(const char *resp)
 {
+    /* 重复数据检测: 如果响应与上次相同，跳过解析，提升系统资源利用 */
+    bool is_pid_resp = (resp[0] == '4' && (resp[1] == '1' || resp[1] == '2')) ||
+                       (resp[0] == '0' && resp[1] == ':') ||
+                       (resp[0] == '1' && resp[1] == ':');
+    bool is_ecu_resp = ((resp[0] == '6' && (resp[1] == '2' || resp[1] == '3')) ||
+                        (strncmp(resp, "7F", 2) == 0) ||
+                        (strncmp(resp, "7A9", 3) == 0) ||
+                        (strncmp(resp, "7EF", 3) == 0));
+
+    if (is_pid_resp) {
+        if (strcmp(resp, s_last_pid_resp) == 0) {
+            /* 慢轮数据重复，跳过解析 */
+            ESP_LOGD(TAG, "PID resp unchanged, skip parse: %s", resp);
+            s_got_data = true;
+            return;
+        }
+        /* 更新缓存 */
+        strncpy(s_last_pid_resp, resp, sizeof(s_last_pid_resp) - 1);
+        s_last_pid_resp[sizeof(s_last_pid_resp) - 1] = '\0';
+    } else if (is_ecu_resp) {
+        if (strcmp(resp, s_last_ecu_resp) == 0) {
+            /* ECU DID 数据重复，跳过解析 */
+            ESP_LOGD(TAG, "ECU resp unchanged, skip parse: %s", resp);
+            ecu_clear_pending();
+            s_got_data = true;
+            return;
+        }
+        /* 更新缓存 */
+        strncpy(s_last_ecu_resp, resp, sizeof(s_last_ecu_resp) - 1);
+        s_last_ecu_resp[sizeof(s_last_ecu_resp) - 1] = '\0';
+    }
+
     /* 1. 41xx 标准 PID 响应 (ATH0 模式, 无 CAN 头部) */
     if (resp[0] == '4' && (resp[1] == '1' || resp[1] == '2')) {
         parse_std(resp);
@@ -728,6 +781,23 @@ static void next(void)
     }
 
     /* === init 和 PID 正常推进 === */
+    
+    /* 冷却液温度轮询控制: 非关键数据，降低轮询频率 */
+    if (old == ST_PID_COOLANT) {
+        s_coolant_tick++;
+        /* 每 COOLANT_EVERY 个周期才轮询一次冷却液温度（安全冗余）*/
+        if (s_coolant_tick >= COOLANT_EVERY) {
+            s_coolant_tick = 0;
+            /* 正常推进到下一个 PID */
+            s_st = ST_PID_ODOMETER;
+        } else {
+            /* 跳过冷却液温度，直接进入 ECU 阶段 */
+            s_st = ST_ECU_ATSH;
+        }
+        return;
+    }
+    
+    /* 其他状态正常推进 */
     s_st++;
     if (s_st >= ST_ECU_ATSH) s_st = ST_PID_RUN;
 
@@ -737,6 +807,7 @@ static void next(void)
         s_got_data = false;
         s_rx_trigger = false;
         s_slow_tick = 0;
+        s_coolant_tick = 0;  /* 重置冷却液轮询计数 */
         ecu_enter_pid();
         ESP_LOGI(TAG, "enter PID, clear backlog");
     }
@@ -771,11 +842,11 @@ static const char *cmd_of(st_t st)
 /* tof: 超时时间 (ms) */
 static int tof(st_t st)
 {
-    if (st == ST_INIT_ATZ) return 3000;  /* ATZ 复位需 3s */
-    if (st <= ST_INIT_ATSTFF) return 500;
+    if (st == ST_INIT_ATZ) return 2000;  /* ATZ 复位需 2s（从3s减少）*/
+    if (st <= ST_INIT_ATSTFF) return 600;  /* 初始化阶段 600ms（从1s减少）*/
     if (st == ST_ECU_RESTORE_THEN_ATSH) return 60;   /* RESTORE→ATSH 快速连续 */
     if (st >= ST_ECU_ATSH && st <= ST_ECU_RESTORE) return 200;  /* ECU 阶段200ms超时 */
-    return 800;  /* PID 阶段: 800ms超时（原1500ms太慢） */
+    return 500;  /* PID 阶段: 500ms超时（从1s减少）*/
 }
 
 /* ---------- 公共接口 ---------- */
@@ -790,7 +861,10 @@ void obd_init(void)
     s_rx_trigger = false;
     s_got_data = false;
     s_slow_tick = 0;
+    s_coolant_tick = 0;
     memset(s_tp_slots, 0, sizeof(s_tp_slots));
+    memset(s_last_pid_resp, 0, sizeof(s_last_pid_resp));
+    memset(s_last_ecu_resp, 0, sizeof(s_last_ecu_resp));
     elm_init();
     ecu_init();
 }
@@ -930,6 +1004,9 @@ void obd_update(void)
             next();
         }
     }
+    
+    /* 发送数据到消息队列，供 UI 任务非阻塞接收 */
+    obd_queue_send_from_obd_update();
 }
 
 /* obd_get_data: 获取最新 OBD 数据 (只读) */
@@ -942,4 +1019,71 @@ const obd_data_t *obd_get_data(void)
 obd_data_t *obd_get_data_rw(void)
 {
     return &s_data;
+}
+
+/* ---------- 消息队列实现 ---------- */
+
+/* obd_queue_init: 初始化 OBD 数据消息队列 */
+void obd_queue_init(void)
+{
+    if (s_obd_queue == NULL) {
+        s_obd_queue = xQueueCreate(OBD_QUEUE_LENGTH, OBD_QUEUE_ITEM_SIZE);
+        if (s_obd_queue != NULL) {
+            ESP_LOGI(TAG, "OBD queue initialized (len=%d, size=%u)", 
+                     OBD_QUEUE_LENGTH, OBD_QUEUE_ITEM_SIZE);
+        } else {
+            ESP_LOGE(TAG, "Failed to create OBD queue");
+        }
+    }
+}
+
+/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据 */
+bool obd_queue_receive(obd_data_t *data)
+{
+    if (s_obd_queue == NULL || data == NULL) {
+        return false;
+    }
+    
+    /* 非阻塞接收，队列为空时立即返回 */
+    if (xQueueReceive(s_obd_queue, data, 0) == pdTRUE) {
+        return true;
+    }
+    return false;
+}
+
+/* obd_queue_send: 发送 OBD 数据到队列 */
+bool obd_queue_send(const obd_data_t *data)
+{
+    if (s_obd_queue == NULL || data == NULL) {
+        return false;
+    }
+    
+    /* 控制发送频率，避免队列过快填满 */
+    uint32_t now = lv_tick_get();
+    if (now - s_last_send_ms < OBD_QUEUE_SEND_INTERVAL_MS) {
+        return false;
+    }
+    
+    /* 发送数据到队列（非阻塞）*/
+    if (xQueueSend(s_obd_queue, data, 0) == pdTRUE) {
+        s_last_send_ms = now;
+        return true;
+    }
+    
+    /* 队列满，移除最旧数据并重试 */
+    ESP_LOGD(TAG, "OBD queue full, dropping oldest");
+    obd_data_t temp_data;  /* 临时缓冲区 */
+    xQueueReceive(s_obd_queue, &temp_data, 0);  /* 移除最旧的 */
+    if (xQueueSend(s_obd_queue, data, 0) == pdTRUE) {
+        s_last_send_ms = now;
+        return true;
+    }
+    
+    return false;
+}
+
+/* obd_queue_send_from_obd_update: 在 OBD 更新完成后调用，发送数据到队列 */
+void obd_queue_send_from_obd_update(void)
+{
+    obd_queue_send(&s_data);
 }

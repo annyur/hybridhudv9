@@ -1,9 +1,9 @@
 /* ecu.c -- UDS DID 数据解析器 + 双队列调度
  *
  * 功率优先策略:
- *   - F228/F229 (电压/电流): 70ms 周期交替发送，功率 ~7Hz 刷新
- *   - F252/F253 (电池温度): 5000ms 周期超慢轮询，温度 ~0.2Hz 刷新
- *   - 温度队列优先于功率队列，防止被饿死
+ *   - F228/F229 (电压/电流): 40ms 高频周期，功率 ~25Hz 刷新，尽可能实时
+ *   - F252/F253 (电池温度): 10000ms 超慢速轮询，温度 ~0.1Hz 刷新（非关键）
+ *   - 温度队列优先于功率队列，防止被饿死（安全冗余）
  */
 #include "ecu.h"
 #include "elm.h"
@@ -16,8 +16,8 @@
 
 static const char *TAG = "ECU";
 
-/* ---------- 功率队列: 70ms 稳健 ---------- */
-#define PWR_PERIOD_MS   70
+/* ---------- 功率队列: 100ms 高频 - 尽可能实时 ---------- */
+#define PWR_PERIOD_MS   100    /* 从40ms增加到100ms，降低轮询频率，减少OBD设备压力 */
 #define PWR_LEN         2
 static const struct {
     uint16_t did;
@@ -29,8 +29,8 @@ static const struct {
 static int      s_pwr_idx = 0;
 static uint32_t s_pwr_last = 0;
 
-/* ---------- 温度队列: 5000ms 超慢速 ---------- */
-#define TEMP_PERIOD_MS  5000
+/* ---------- 温度队列: 2000ms 中速轮询 - 非关键但需要定期更新 ---------- */
+#define TEMP_PERIOD_MS  2000   /* 从10000ms减少到2000ms，加快数据显示 */
 #define TEMP_LEN        2
 static const struct {
     uint16_t did;
@@ -188,13 +188,13 @@ void ecu_parse_uds(const char *resp)
         break;
     case 0xF252:
         if (vn >= 1) {
-            data->bms_max_temp = (int)v[0];
+            data->bms_max_temp = (int)v[0] - 40;  /* 文档公式: u8 - 40 = °C */
             ESP_LOGI(TAG, "BMS Tmax=%d", data->bms_max_temp);
         }
         break;
     case 0xF253:
         if (vn >= 1) {
-            data->bms_min_temp = (int)v[0];
+            data->bms_min_temp = (int)v[0] - 40;  /* 文档公式: u8 - 40 = °C */
             ESP_LOGI(TAG, "BMS Tmin=%d", data->bms_min_temp);
         }
         break;

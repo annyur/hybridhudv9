@@ -10,6 +10,11 @@
  *   - ecu.c  写入 DID 数据 (F228/F229/0809 等)
  *   - general.c / race.c 只读刷新 UI
  *
+ * 非阻塞数据同步:
+ *   - OBD 任务收集数据后发送到消息队列
+ *   - UI 任务从队列非阻塞接收，队列为空时立即返回
+ *   - 实现生产者-消费者模式，避免 UI 阻塞
+ *
  * 车辆: Mazda EZ-6 / 长安深蓝 SL03 (VIN: LVRHDCEM3SN021133)
  * 协议: ISO 15765-4 CAN 11-bit 500kbps (ATSP6)
  */
@@ -161,6 +166,24 @@ const obd_data_t *obd_get_data(void);
 
 /* obd_get_data_rw: 内部模块使用 (ecu.c 写 DID 数据) */
 obd_data_t *obd_get_data_rw(void);
+
+/* ---------- 消息队列接口 (非阻塞数据同步) ---------- */
+
+/* obd_queue_init: 初始化 OBD 数据消息队列 */
+void obd_queue_init(void);
+
+/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据
+ * @param data 接收缓冲区
+ * @return true 成功接收到数据, false 队列为空 */
+bool obd_queue_receive(obd_data_t *data);
+
+/* obd_queue_send: 发送 OBD 数据到队列 (内部使用)
+ * @param data 要发送的数据
+ * @return true 发送成功, false 队列满 */
+bool obd_queue_send(const obd_data_t *data);
+
+/* obd_queue_send_from_obd_update: 在 OBD 更新完成后调用，发送数据到队列 (内部使用) */
+void obd_queue_send_from_obd_update(void);
 
 #ifdef __cplusplus
 }

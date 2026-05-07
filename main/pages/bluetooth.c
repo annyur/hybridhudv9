@@ -99,11 +99,22 @@ void bluetooth_auto_reconnect(void)
     static int s_state = 0;   /* 0=等待 1=已尝试 2=成功 3=放弃 */
     static int s_tick = 0;
     static int s_retry = 0;
+    static uint32_t s_connect_start_ms = 0;
+    static uint32_t s_fail_cooldown_ms = 0;  /* 连接失败后的冷却时间 */
 
     if (s_state == 2 || s_state == 3) return;  /* 成功或放弃后不再尝试 */
 
+    /* 检查冷却期（固定5秒，给 NimBLE 更多清理时间） */
+    uint32_t now = lv_tick_get();
+    if (s_fail_cooldown_ms > 0) {
+        if (now - s_fail_cooldown_ms < 5000) {
+            return;  /* 冷却期内不尝试连接 */
+        }
+        s_fail_cooldown_ms = 0;
+    }
+
     s_tick++;
-    if (s_tick < 10) return;      /* ~1s 等 NimBLE 完全就绪 */
+    if (s_tick < 3) return;      /* ~300ms 快速等待 NimBLE 就绪 */
 
     if (!s_has_last) {
         nvs_load_last_addr();      /* 提前加载地址 */
@@ -120,11 +131,24 @@ void bluetooth_auto_reconnect(void)
         return;
     }
 
+    /* 连接超时检测：如果发起连接后1秒仍未成功，重试 */
+    if (s_state == 1) {
+        if (now - s_connect_start_ms > 1000) {
+            ESP_LOGW(TAG, "connect timeout, retry=%d", s_retry);
+            /* 连接失败后先断开，确保 NimBLE 栈状态正确 */
+            conn_disconnect();
+            s_state = 0;  /* 重置状态 */
+            s_fail_cooldown_ms = now;  /* 设置冷却期 */
+            s_retry++;
+        }
+        return;
+    }
+
     if (s_state == 0) {
         ESP_LOGI(TAG, "auto reconnect last device... (retry=%d)", s_retry);
         conn_connect(s_last_addr, BLE_ADDR_PUBLIC);
         s_state = 1;  /* 已发起连接 */
-        s_retry++;
+        s_connect_start_ms = now;
     }
 }
 

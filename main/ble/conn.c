@@ -109,6 +109,9 @@ void conn_disconnect(void)
     if (s_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
         ble_gap_terminate(s_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
     }
+    s_connecting = false;  /* 确保清除连接中状态 */
+    s_connected = false;
+    s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 }
 
 void conn_connect(const uint8_t *addr, uint8_t addr_type)

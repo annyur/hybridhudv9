@@ -1,5 +1,4 @@
 /* screen.c -- simplified: race + bluetooth only */
-#include "lvgl.h"
 #include "gui_guider.h"
 #include "events_init.h"
 #include "race.h"
@@ -11,6 +10,7 @@ lv_ui guider_ui;
 
 static screen_id_t s_current = SCREEN_RACE;
 static uint32_t    s_last_switch_ms = 0;
+static screen_id_t s_switch_request = SCREEN_NONE;  /* 屏幕切换请求标志 */
 
 void screen_init(void)
 {
@@ -24,11 +24,18 @@ void screen_init(void)
     bluetooth_ui_init();
 
     s_current = SCREEN_RACE;
+    s_switch_request = SCREEN_NONE;
     lv_screen_load(guider_ui.race);
     race_enter();
 }
 
-void screen_switch(screen_id_t id)
+void screen_request_switch(screen_id_t id)
+{
+    if (id == SCREEN_NONE || id == s_current) return;
+    s_switch_request = id;
+}
+
+static void screen_switch_internal(screen_id_t id)
 {
     if (id == s_current) return;
     uint32_t now = lv_tick_get();
@@ -46,6 +53,11 @@ void screen_switch(screen_id_t id)
     if (id == SCREEN_BLUETOOTH) bluetooth_enter();
 }
 
+void screen_switch(screen_id_t id)
+{
+    screen_request_switch(id);
+}
+
 screen_id_t screen_current(void)
 {
     return s_current;
@@ -53,6 +65,13 @@ screen_id_t screen_current(void)
 
 void screen_update(void)
 {
+    /* 处理屏幕切换请求（在主循环中执行，避免阻塞其他任务） */
+    if (s_switch_request != SCREEN_NONE) {
+        screen_switch_internal(s_switch_request);
+        s_switch_request = SCREEN_NONE;
+        return;  /* 切换完成后跳过本次更新 */
+    }
+
     if (s_current == SCREEN_RACE) {
         race_update();
     } else if (s_current == SCREEN_BLUETOOTH) {

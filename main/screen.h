@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 typedef enum {
+    SCREEN_NONE = -1,
     SCREEN_RACE = 0,
     SCREEN_BLUETOOTH,
     SCREEN_COUNT
@@ -14,6 +15,7 @@ typedef enum {
 
 void screen_init(void);
 void screen_switch(screen_id_t id);
+void screen_request_switch(screen_id_t id);
 void screen_update(void);
 screen_id_t screen_current(void);
 

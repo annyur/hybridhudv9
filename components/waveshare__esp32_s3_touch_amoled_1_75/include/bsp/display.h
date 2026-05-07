@@ -75,6 +75,18 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
  */
 esp_err_t bsp_display_brightness_init(void);
 
+/**
+ * @brief Initialize backlight hardware without turning it on
+ *
+ * This function initializes the backlight hardware but keeps it off (brightness = 0).
+ * Use bsp_display_backlight_on() to turn on the backlight after LVGL is ready.
+ *
+ * @return
+ *      - ESP_OK                On success
+ *      - ESP_ERR_INVALID_ARG   Parameter error
+ */
+esp_err_t bsp_display_brightness_init_hw(void);
+
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation);
 
 /**

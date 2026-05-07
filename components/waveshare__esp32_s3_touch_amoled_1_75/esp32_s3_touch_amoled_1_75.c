@@ -1,17 +1,12 @@
 #include <stdio.h>
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_io_additions.h"
 
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_vfs_fat.h"
 #include "esp_spiffs.h"
-#include "driver/gpio.h"
-#include "driver/ledc.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #include "esp_lcd_co5300.h"
 #include "esp_lcd_touch_cst9217.h"
@@ -335,6 +330,13 @@ esp_codec_dev_handle_t bsp_audio_codec_microphone_init(void)
 #define LVGL_TICK_PERIOD_MS (CONFIG_BSP_DISPLAY_LVGL_TICK)
 #define LVGL_MAX_SLEEP_MS (CONFIG_BSP_DISPLAY_LVGL_MAX_SLEEP)
 
+esp_err_t bsp_display_brightness_init_hw(void)
+{
+    /* 初始化背光硬件，但不开启（亮度设为0） */
+    bsp_display_brightness_set(0);
+    return ESP_OK;
+}
+
 esp_err_t bsp_display_brightness_init(void)
 {
     bsp_display_brightness_set(100);
@@ -532,9 +534,9 @@ static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            .buffer_height = 50,
+            .buffer_height = 100,
             .use_psram = true,
-            .enable_ppa_accel = false,
+            .enable_ppa_accel = true,
             .require_double_buffer = true,
         },
         .tear_avoid_mode = cfg->tear_avoid_mode,
@@ -599,8 +601,11 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg)
 
     BSP_NULL_CHECK(disp_indev = bsp_display_indev_init(cfg, disp), NULL);
 
-    BSP_ERROR_CHECK_RETURN_NULL(bsp_display_brightness_init());
+    /* 初始化背光硬件并开启 */
+    BSP_ERROR_CHECK_RETURN_NULL(bsp_display_brightness_init_hw());
+    bsp_display_backlight_on();
 
+    /* 启动 LVGL */
     ESP_ERROR_CHECK(esp_lv_adapter_start());
 
     return disp;

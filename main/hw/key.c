@@ -1,7 +1,7 @@
 /* key.c — PWR + BOOT 按键轮询（消抖后触发）
- * 精简版：只保留 race + bluetooth 切换
- *   PWR  键 ── 短按切换 race ↔ bluetooth
- *   BOOT 键 ── race 界面 G-force 归零
+ * 按键功能：
+ *   BOOT 键 ── 短按打开 Bluetooth 界面，长按(>2秒)开关机
+ *   PWR 键 ── race 界面 G-force 归零
  */
 #include "key.h"
 #include "screen.h"
@@ -9,6 +9,7 @@
 #include "esp_io_expander.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_system.h"
 
 static const char *TAG = "KEY";
 
@@ -17,27 +18,40 @@ static const char *TAG = "KEY";
 
 #define DEBOUNCE_CNT     5          /* 连续 5 次确认（5×20ms = 100ms） */
 #define BOOT_COOLDOWN_MS 2000      /* 开机冷静期 2 秒 */
+#define LONG_PRESS_MS    2000      /* 长按阈值 2 秒 */
 
 static esp_io_expander_handle_t s_io = NULL;
 static uint32_t s_init_ms = 0;       /* key_init() 调用时间 */
 static bool s_cooldown_done = false; /* 冷静期是否结束 */
-static bool s_pwr_baseline = false;  /* 冷静期后 PWR 是否按下（基线） */
+static bool s_pwr_baseline = false;  /* 冷静期后 BOOT 是否按下（基线） */
 
-/* ---------- 按键状态机 ---------- */
+/* ---------- BOOT 键专用状态机 ---------- */
+typedef enum {
+    BOOT_IDLE = 0,        /* 空闲，等待按下 */
+    BOOT_DEBOUNCE,        /* 消抖中 */
+    BOOT_PRESSED,         /* 已按下，等待释放或长按判定 */
+    BOOT_LONG_PRESSED     /* 已触发长按 */
+} boot_state_t;
+
+static boot_state_t s_boot_state = BOOT_IDLE;
+static uint32_t s_boot_press_ms = 0;  /* 按下时刻 */
+static int s_boot_debounce_cnt = 0;   /* 消抖计数 */
+
+/* ---------- 通用按键状态机 ---------- */
 typedef struct {
     int  stable;        /* stable: 0=释放 1=按下 */
     int  debounce;      /* debounce: 消抖计数 */
     bool triggered;     /* triggered: 已触发, 等待释放 */
 } key_state_t;
 
-static key_state_t s_boot = {0};
-static key_state_t s_pwr  = {0};
+static key_state_t s_pwr = {0};
 
 void key_init(void)
 {
     s_init_ms = lv_tick_get();
     s_cooldown_done = false;
     s_pwr_baseline = false;
+    s_boot_state = BOOT_IDLE;
 
     /* GPIO0: BOOT 键, 输入上拉 */
     gpio_config_t cfg = {
@@ -105,6 +119,66 @@ static bool debounce_process(bool raw, key_state_t *st)
     return false;
 }
 
+/* BOOT 键专用状态机处理 */
+static void boot_key_task(uint32_t now)
+{
+    bool boot_now = read_boot_raw();
+
+    switch (s_boot_state) {
+        case BOOT_IDLE:
+            if (boot_now) {
+                /* 检测到按下，开始消抖 */
+                s_boot_debounce_cnt = 0;
+                s_boot_state = BOOT_DEBOUNCE;
+                ESP_LOGD(TAG, "BOOT: IDLE → DEBOUNCE");
+            }
+            break;
+
+        case BOOT_DEBOUNCE:
+            if (boot_now) {
+                s_boot_debounce_cnt++;
+                if (s_boot_debounce_cnt >= DEBOUNCE_CNT) {
+                    /* 消抖完成，进入按下状态 */
+                    s_boot_press_ms = now;
+                    s_boot_state = BOOT_PRESSED;
+                    ESP_LOGD(TAG, "BOOT: DEBOUNCE → PRESSED (press_ms=%lu)", now);
+                }
+            } else {
+                /* 按键释放，忽略（抖动） */
+                s_boot_debounce_cnt = 0;
+                s_boot_state = BOOT_IDLE;
+                ESP_LOGD(TAG, "BOOT: DEBOUNCE → IDLE (released)");
+            }
+            break;
+
+        case BOOT_PRESSED:
+            /* 检查长按是否触发 */
+            if ((now - s_boot_press_ms) >= LONG_PRESS_MS) {
+                ESP_LOGI(TAG, "BOOT long press (>%dms) → restart", LONG_PRESS_MS);
+                s_boot_state = BOOT_LONG_PRESSED;
+                esp_restart();
+                break;
+            }
+
+            /* 检查是否释放 */
+            if (!boot_now) {
+                /* 短按触发：打开 Bluetooth 界面 */
+                ESP_LOGI(TAG, "BOOT short press → switch to BLUETOOTH");
+                screen_request_switch(SCREEN_BLUETOOTH);
+                s_boot_state = BOOT_IDLE;
+                s_boot_press_ms = 0;
+            }
+            break;
+
+        case BOOT_LONG_PRESSED:
+            /* 不可能到达这里（重启后），但防止意外 */
+            if (!boot_now) {
+                s_boot_state = BOOT_IDLE;
+            }
+            break;
+    }
+}
+
 void key_poll(void)
 {
     uint32_t now = lv_tick_get();
@@ -112,51 +186,39 @@ void key_poll(void)
     /* ========== 开机冷静期 ========== */
     if (!s_cooldown_done) {
         if ((now - s_init_ms) < BOOT_COOLDOWN_MS) {
-            /* 冷静期内清零消抖计数, 不响应按键 */
-            s_boot.debounce = s_boot.stable = s_boot.triggered = 0;
-            s_pwr.debounce  = s_pwr.stable  = s_pwr.triggered  = 0;
+            /* 冷静期内清零状态, 不响应按键 */
+            s_pwr.debounce = s_pwr.stable = s_pwr.triggered = 0;
+            s_boot_state = BOOT_IDLE;
             return;
         }
-        /* 冷静期结束: 记录 PWR 基线 */
+        /* 冷静期结束: 记录 BOOT 基线 */
         s_cooldown_done = true;
-        s_pwr_baseline = read_pwr_raw();
+        s_pwr_baseline = read_boot_raw();
         if (s_pwr_baseline) {
-            ESP_LOGW(TAG, "cooldown end, PWR still pressed (baseline), will ignore until release");
+            ESP_LOGW(TAG, "cooldown end, BOOT still pressed (baseline), will ignore until release");
         } else {
-            ESP_LOGI(TAG, "cooldown end, PWR released, key polling active");
+            ESP_LOGI(TAG, "cooldown end, BOOT released, key polling active");
         }
     }
 
-    /* ── PWR 键：切换 race / bluetooth ── */
-    bool pwr_now = read_pwr_raw();
-
+    /* ── BOOT 键：短按打开 Bluetooth，长按(>2秒)开关机 ── */
     if (s_pwr_baseline) {
-        if (!pwr_now) {
-            ESP_LOGI(TAG, "PWR released, baseline cleared, now active");
+        if (!read_boot_raw()) {
+            ESP_LOGI(TAG, "BOOT released, baseline cleared, now active");
             s_pwr_baseline = false;
-            s_pwr.debounce = s_pwr.stable = s_pwr.triggered = 0;
+            s_boot_state = BOOT_IDLE;
         }
     } else {
-        if (debounce_process(pwr_now, &s_pwr)) {
-            /* 短按: race ↔ bluetooth 切换 */
-            screen_id_t next = (screen_current() == SCREEN_RACE) ? SCREEN_BLUETOOTH : SCREEN_RACE;
-            ESP_LOGI(TAG, "PWR pressed → switch to %s", (next == SCREEN_RACE) ? "RACE" : "BLUETOOTH");
-            screen_switch(next);
-        }
+        boot_key_task(now);
     }
 
-    /* ── BOOT 键：仅在 Race 界面归零 G-force ── */
-    bool boot_raw = read_boot_raw();
-    if (boot_raw) {
-        ESP_LOGD(TAG, "BOOT raw=true, db=%d st=%d tr=%d", s_boot.debounce, s_boot.stable, s_boot.triggered);
-    }
-    if (debounce_process(boot_raw, &s_boot)) {
+    /* ── PWR 键：仅在 Race 界面归零 G-force ── */
+    bool pwr_raw = read_pwr_raw();
+    if (debounce_process(pwr_raw, &s_pwr)) {
         if (screen_current() == SCREEN_RACE) {
-            ESP_LOGI(TAG, "BOOT pressed in RACE → G-force zero");
+            ESP_LOGI(TAG, "PWR pressed in RACE → G-force zero");
             extern void race_G_zero(void);
             race_G_zero();
-        } else {
-            ESP_LOGD(TAG, "BOOT pressed ignored (not in RACE, cur=%d)", screen_current());
         }
     }
 }
