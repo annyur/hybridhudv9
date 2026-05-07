@@ -31,8 +31,24 @@ extern bool hud_imu_get_accel(float *ax, float *ay, float *az);
 #define G_DEAD_MIN   0.02f
 #define G_EMA_ALPHA  0.30f
 
-static float s_gx_ema = 0.0f, s_gy_ema = 0.0f;
-static float s_gx_prev = 0.0f, s_gy_prev = 0.0f;
+/* G-Force EMA 滤波器封装（可重入）*/
+typedef struct {
+    float ema_x;
+    float ema_y;
+    float prev_x;
+    float prev_y;
+} gforce_filter_t;
+
+static void gforce_filter_reset(gforce_filter_t *f)
+{
+    f->ema_x = 0.0f;
+    f->ema_y = 0.0f;
+    f->prev_x = 0.0f;
+    f->prev_y = 0.0f;
+}
+
+/* G-Force 滤波器实例（替代原来的静态变量）*/
+static gforce_filter_t s_gforce = {0};
 
 /* 功率动画 */
 static float s_display_kw = 0.0f;
@@ -129,10 +145,10 @@ static lv_color_t power_color(float power_kw)
 static void set_power_arcs(float target_power_kw)
 {
     float target_abs_kw = target_power_kw >= 0 ? target_power_kw : -target_power_kw;
-    if (target_abs_kw > 100.0f) target_abs_kw = 100.0f;
+    if (target_abs_kw > 50.0f) target_abs_kw = 50.0f;
     
-    /* 目标扩散值 */
-    int target_spread = (int)(target_abs_kw + 0.5f) * 50 / 100;
+    /* 目标扩散值 - 50kW填满整圈 */
+    int target_spread = (int)(target_abs_kw + 0.5f);
     
     /* 计算显示值到目标值的差值 */
     float kw_diff = target_power_kw - s_display_kw;
@@ -268,14 +284,14 @@ static void race_update_non_obd(void)
         if (hud_imu_get_accel(&ax, &ay, &az)) {
             float raw_x = (-ay) / 9.80665f;
             float raw_y = (az)  / 9.80665f;
-            float jerk_x = raw_x - s_gx_prev;
-            float jerk_y = raw_y - s_gy_prev;
+            float jerk_x = raw_x - s_gforce.prev_x;
+            float jerk_y = raw_y - s_gforce.prev_y;
             float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
-            s_gx_prev = raw_x; s_gy_prev = raw_y;
-            s_gx_ema = ema_filter(s_gx_ema, shake_comp(raw_x, jerk));
-            s_gy_ema = ema_filter(s_gy_ema, shake_comp(raw_y, jerk));
-            float off_x = g_to_pixel(s_gx_ema);
-            float off_y = g_to_pixel(s_gy_ema);
+            s_gforce.prev_x = raw_x; s_gforce.prev_y = raw_y;
+            s_gforce.ema_x = ema_filter(s_gforce.ema_x, shake_comp(raw_x, jerk));
+            s_gforce.ema_y = ema_filter(s_gforce.ema_y, shake_comp(raw_y, jerk));
+            float off_x = g_to_pixel(s_gforce.ema_x);
+            float off_y = g_to_pixel(s_gforce.ema_y);
             float px = G_CENTER_X + off_x - 10.0f;
             float py = G_CENTER_Y + off_y - 10.0f;
             if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
@@ -290,10 +306,10 @@ static void race_update_non_obd(void)
             }
 
             /* G-force 数值标签 - 只在值变化超过阈值时更新 */
-            float val_top = s_gy_ema < 0 ? -s_gy_ema : 0.0f;
-            float val_bottom = s_gy_ema > 0 ? s_gy_ema : 0.0f;
-            float val_left = s_gx_ema < 0 ? -s_gx_ema : 0.0f;
-            float val_right = s_gx_ema > 0 ? s_gx_ema : 0.0f;
+            float val_top = s_gforce.ema_y < 0 ? -s_gforce.ema_y : 0.0f;
+            float val_bottom = s_gforce.ema_y > 0 ? s_gforce.ema_y : 0.0f;
+            float val_left = s_gforce.ema_x < 0 ? -s_gforce.ema_x : 0.0f;
+            float val_right = s_gforce.ema_x > 0 ? s_gforce.ema_x : 0.0f;
 
             if (fabsf(val_top - s_last_g_val_top) > 0.01f) {
                 snprintf(buf, sizeof(buf), "%.2f", val_top);
@@ -410,14 +426,14 @@ void race_update(void)
         if (hud_imu_get_accel(&ax, &ay, &az)) {
             float raw_x = (-ay) / 9.80665f;
             float raw_y = (az)  / 9.80665f;
-            float jerk_x = raw_x - s_gx_prev;
-            float jerk_y = raw_y - s_gy_prev;
+            float jerk_x = raw_x - s_gforce.prev_x;
+            float jerk_y = raw_y - s_gforce.prev_y;
             float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
-            s_gx_prev = raw_x; s_gy_prev = raw_y;
-            s_gx_ema = ema_filter(s_gx_ema, shake_comp(raw_x, jerk));
-            s_gy_ema = ema_filter(s_gy_ema, shake_comp(raw_y, jerk));
-            float off_x = g_to_pixel(s_gx_ema);
-            float off_y = g_to_pixel(s_gy_ema);
+            s_gforce.prev_x = raw_x; s_gforce.prev_y = raw_y;
+            s_gforce.ema_x = ema_filter(s_gforce.ema_x, shake_comp(raw_x, jerk));
+            s_gforce.ema_y = ema_filter(s_gforce.ema_y, shake_comp(raw_y, jerk));
+            float off_x = g_to_pixel(s_gforce.ema_x);
+            float off_y = g_to_pixel(s_gforce.ema_y);
             float px = G_CENTER_X + off_x - 10.0f;
             float py = G_CENTER_Y + off_y - 10.0f;
             if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
@@ -432,10 +448,10 @@ void race_update(void)
             }
 
             /* G-force 数值标签 - 只在值变化超过阈值时更新，避免重复设置文本 */
-            float val_top = s_gy_ema < 0 ? -s_gy_ema : 0.0f;
-            float val_bottom = s_gy_ema > 0 ? s_gy_ema : 0.0f;
-            float val_left = s_gx_ema < 0 ? -s_gx_ema : 0.0f;
-            float val_right = s_gx_ema > 0 ? s_gx_ema : 0.0f;
+            float val_top = s_gforce.ema_y < 0 ? -s_gforce.ema_y : 0.0f;
+            float val_bottom = s_gforce.ema_y > 0 ? s_gforce.ema_y : 0.0f;
+            float val_left = s_gforce.ema_x < 0 ? -s_gforce.ema_x : 0.0f;
+            float val_right = s_gforce.ema_x > 0 ? s_gforce.ema_x : 0.0f;
 
             if (fabsf(val_top - s_last_g_val_top) > 0.01f) {
                 snprintf(buf, sizeof(buf), "%.2f", val_top);
@@ -549,8 +565,7 @@ void race_update(void)
 /* ============================================================ */
 void race_enter(void)
 {
-    s_gx_ema = s_gy_ema = 0.0f;
-    s_gx_prev = s_gy_prev = 0.0f;
+    gforce_filter_reset(&s_gforce);
     s_display_kw = -999.0f;
     s_last_display_kw = -999.0f;
     s_last_power_kw = -999.0f;
@@ -599,14 +614,20 @@ void race_enter(void)
     hud_imu_calibrate();
 }
 
-void race_exit(void) { }
+void race_exit(void) 
+{ 
+    /* 停止呼吸动画，释放 GPU 和定时器资源 */
+    arc7_breath_stop();
+    /* 停止闪烁状态 */
+    s_arc7_flash_cnt = 0;
+    s_arc7_flash_tick = 0;
+}
 void race_boot_animation(void) { }
 void race_G_zero(void)
 {
     ESP_LOGI("RACE", "G_zero called");
     hud_imu_calibrate();
-    s_gx_ema = s_gy_ema = 0.0f;
-    s_gx_prev = s_gy_prev = 0.0f;
+    gforce_filter_reset(&s_gforce);
 
     /* 启动 arc7 快速闪烁2下(120ms亮→120ms暗→120ms亮→120ms暗) */
     s_arc7_flash_cnt = 4;

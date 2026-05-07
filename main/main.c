@@ -17,6 +17,10 @@
 
 static const char *TAG = "MAIN";
 
+/* OBD 任务状态 */
+static uint32_t s_conn_ready_ms = 0;
+static bool s_obd_waiting = false;
+
 static void sensor_task(void *pv)
 {
     hud_imu_init();
@@ -30,26 +34,23 @@ static void obd_task(void *pv)
 {
     (void)pv;
     obd_init();
-
-    static uint32_t conn_ready_ms = 0;
-    static bool waiting = false;
     
     while (1) {
         if (conn_is_ready() && !obd_is_running()) {
-            if (!waiting) {
-                conn_ready_ms = lv_tick_get();
-                waiting = true;
+            if (!s_obd_waiting) {
+                s_conn_ready_ms = lv_tick_get();
+                s_obd_waiting = true;
                 ESP_LOGI(TAG, "OBD waiting for BT stabilization...");
             } else {
                 /* 等待 300ms 让蓝牙链路稳定（进一步减少延迟）*/
-                if (lv_tick_get() - conn_ready_ms >= 300) {
+                if (lv_tick_get() - s_conn_ready_ms >= 300) {
                     obd_start();
                     ESP_LOGI(TAG, "OBD auto started");
-                    waiting = false;
+                    s_obd_waiting = false;
                 }
             }
         } else if (!conn_is_ready()) {
-            waiting = false;  /* 蓝牙断开，重置等待状态 */
+            s_obd_waiting = false;  /* 蓝牙断开，重置等待状态 */
         }
         obd_update();
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -61,7 +62,7 @@ static void key_task(void *pv)
     (void)pv;
     while (1) {
         key_poll();
-        vTaskDelay(pdMS_TO_TICKS(20));  /* 50Hz 按键扫描 */
+        vTaskDelay(pdMS_TO_TICKS(33));  /* 30Hz 按键扫描（降低轮询频率，减少CPU开销）*/
     }
 }
 
@@ -103,13 +104,17 @@ void app_main(void)
     xTaskCreatePinnedToCore(sensor_task,         "SENS",  4096, NULL, 3, NULL, 1);
     xTaskCreatePinnedToCore(obd_task,           "OBD",   4096, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(key_task,           "KEY",   2048, NULL, 4, NULL, 0);
-    xTaskCreatePinnedToCore(ble_reconnect_task, "BLE",   4096, NULL, 2, NULL, 0);  /* 从2048增加到4096，防止栈溢出 */
+    xTaskCreatePinnedToCore(ble_reconnect_task, "BLE",   3072, NULL, 2, NULL, 0);  /* 3KB 足够 */
 
-    /* 主循环：只负责 UI 调度 */
+    /* 主循环：精确 60Hz UI 更新 */
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(16);  /* 16ms ≈ 60Hz */
+    
     while (1) {
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);  /* 精确帧间隔 */
+        
         bsp_display_lock(-1);
         screen_update();
         bsp_display_unlock();
-        vTaskDelay(pdMS_TO_TICKS(16));  /* ~60Hz UI 更新（从30Hz提高）*/
     }
 }

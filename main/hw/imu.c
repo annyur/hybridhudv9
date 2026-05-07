@@ -15,13 +15,21 @@ static float s_ax0 = 0.0f;
 static float s_ay0 = 0.0f;
 static float s_az0 = 0.0f;
 
-/* 采集零点（优化：10 样本 + 3ms 间隔，约 50ms 完成） */
+/* 采集零点（优化：10 样本 + 3ms 间隔，约 50ms 完成，带超时保护） */
 static void capture_zero(void)
 {
     float sum_x = 0.0f, sum_y = 0.0f, sum_z = 0.0f;
     int valid = 0;
+    uint32_t start_ms = lv_tick_get();
+    const uint32_t timeout_ms = 200;  /* 最大超时时间 200ms */
 
     for (int i = 0; i < 10; i++) {   /* ← 从 30 减到 10 */
+        /* 检查超时 */
+        if ((lv_tick_get() - start_ms) >= timeout_ms) {
+            ESP_LOGE(TAG, "zero capture timeout after %dms", timeout_ms);
+            break;
+        }
+
         bool ready = false;
         if (qmi8658_is_data_ready(&s_imu, &ready) != ESP_OK || !ready) {
             vTaskDelay(pdMS_TO_TICKS(3));  /* ← 从 5ms 减到 3ms */

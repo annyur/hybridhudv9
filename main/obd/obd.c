@@ -34,11 +34,12 @@ static obd_data_t s_data = {0};
 static bool s_running = false;
 
 /* ---------- 消息队列 ---------- */
-#define OBD_QUEUE_LENGTH  8   /* 队列长度 */
+#define OBD_QUEUE_LENGTH  16  /* 队列长度（从8增加到16，提高缓冲能力）*/
 #define OBD_QUEUE_ITEM_SIZE sizeof(obd_data_t)
 static QueueHandle_t s_obd_queue = NULL;
 static uint32_t s_last_send_ms = 0;
-#define OBD_QUEUE_SEND_INTERVAL_MS 20  /* 发送间隔，从50ms减少到20ms，降低数据传输延迟 */
+static uint32_t s_queue_overflow_cnt = 0;  /* 溢出计数器 */
+#define OBD_QUEUE_SEND_INTERVAL_MS 50  /* 发送间隔 - 与功率轮询周期匹配，降低队列压力 */
 
 /* ---------- 状态机定义 ---------- */
 typedef enum {
@@ -1071,9 +1072,12 @@ bool obd_queue_send(const obd_data_t *data)
     }
     
     /* 队列满，移除最旧数据并重试 */
-    ESP_LOGD(TAG, "OBD queue full, dropping oldest");
-    obd_data_t temp_data;  /* 临时缓冲区 */
-    xQueueReceive(s_obd_queue, &temp_data, 0);  /* 移除最旧的 */
+    s_queue_overflow_cnt++;
+    if (s_queue_overflow_cnt % 10 == 1) {  /* 每10次溢出记录一次日志 */
+        ESP_LOGW(TAG, "OBD queue overflow, drop oldest (cnt=%u)", s_queue_overflow_cnt);
+    }
+    obd_data_t temp_data;
+    xQueueReceive(s_obd_queue, &temp_data, 0);
     if (xQueueSend(s_obd_queue, data, 0) == pdTRUE) {
         s_last_send_ms = now;
         return true;
@@ -1086,4 +1090,10 @@ bool obd_queue_send(const obd_data_t *data)
 void obd_queue_send_from_obd_update(void)
 {
     obd_queue_send(&s_data);
+}
+
+/* obd_get_queue_overflow_cnt: 获取队列溢出计数 */
+uint32_t obd_get_queue_overflow_cnt(void)
+{
+    return s_queue_overflow_cnt;
 }

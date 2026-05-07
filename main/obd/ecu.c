@@ -1,9 +1,10 @@
 /* ecu.c -- UDS DID 数据解析器 + 双队列调度
  *
  * 功率优先策略:
- *   - F228/F229 (电压/电流): 40ms 高频周期，功率 ~25Hz 刷新，尽可能实时
- *   - F252/F253 (电池温度): 10000ms 超慢速轮询，温度 ~0.1Hz 刷新（非关键）
+ *   - F228/F229 (电压/电流): 90ms 高频周期，功率 ~11Hz 刷新，平衡响应性与CPU负载
+ *   - F252/F253 (电池温度): 30000ms 超慢速轮询，温度 ~0.03Hz 刷新（非关键）
  *   - 温度队列优先于功率队列，防止被饿死（安全冗余）
+ *   - 重复数据检测: 电压变化<0.01V或电流变化<0.1A时跳过解析
  */
 #include "ecu.h"
 #include "elm.h"
@@ -13,11 +14,12 @@
 #include "lvgl.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <math.h>
 
 static const char *TAG = "ECU";
 
-/* ---------- 功率队列: 100ms 高频 - 尽可能实时 ---------- */
-#define PWR_PERIOD_MS   100    /* 从40ms增加到100ms，降低轮询频率，减少OBD设备压力 */
+/* ---------- 功率队列: 90ms 高频 - 平衡响应速度和CPU负载 ---------- */
+#define PWR_PERIOD_MS   90     /* 约11Hz，兼顾响应性和CPU负载 */
 #define PWR_LEN         2
 static const struct {
     uint16_t did;
@@ -29,8 +31,14 @@ static const struct {
 static int      s_pwr_idx = 0;
 static uint32_t s_pwr_last = 0;
 
-/* ---------- 温度队列: 2000ms 中速轮询 - 非关键但需要定期更新 ---------- */
-#define TEMP_PERIOD_MS  2000   /* 从10000ms减少到2000ms，加快数据显示 */
+/* 重复数据检测缓存 - 跳过无变化的数据 */
+static float    s_last_voltage = 0.0f;
+static float    s_last_current = 0.0f;
+#define VOLTAGE_THRESHOLD  0.01f  /* 电压变化小于0.01V跳过 */
+#define CURRENT_THRESHOLD  0.1f   /* 电流变化小于0.1A跳过 */
+
+/* ---------- 温度队列: 30000ms 慢速轮询 - 非关键，启动后每30秒更新一次 ---------- */
+#define TEMP_PERIOD_MS  30000   /* 启动时获取初始数据，之后每30秒轮询一次 */
 #define TEMP_LEN        2
 static const struct {
     uint16_t did;
@@ -165,15 +173,25 @@ void ecu_parse_uds(const char *resp)
     case 0xF228:
         if (vn >= 2) {
             uint16_t raw = ((uint16_t)v[0] << 8) | v[1];
-            data->bms_total_v = raw / 10.0f;
-            ESP_LOGI(TAG, "BMS V=%.1fV", data->bms_total_v);
+            float new_v = raw / 10.0f;
+            /* 跳过电压变化极小的数据 */
+            if (fabsf(new_v - s_last_voltage) >= VOLTAGE_THRESHOLD) {
+                data->bms_total_v = new_v;
+                s_last_voltage = new_v;
+                ESP_LOGI(TAG, "BMS V=%.1fV", data->bms_total_v);
+            }
         }
         break;
     case 0xF229:
         if (vn >= 2) {
             int16_t raw = (int16_t)(((uint16_t)v[0] << 8) | v[1]);
-            data->bms_total_current = (raw - 6000) / 10.0f;
-            ESP_LOGI(TAG, "BMS I=%.1fA raw=%d", data->bms_total_current, (int)raw);
+            float new_i = (raw - 6000) / 10.0f;
+            /* 跳过电流变化极小的数据 */
+            if (fabsf(new_i - s_last_current) >= CURRENT_THRESHOLD) {
+                data->bms_total_current = new_i;
+                s_last_current = new_i;
+                ESP_LOGI(TAG, "BMS I=%.1fA raw=%d", data->bms_total_current, (int)raw);
+            }
         }
         break;
     case 0xF250:

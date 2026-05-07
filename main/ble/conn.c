@@ -232,6 +232,8 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
                 s_notify_handle = event->notify_rx.attr_handle;
                 ESP_LOGI(TAG, "auto-correct notify_handle=0x%04X", s_notify_handle);
             }
+        } else if (len > 0) {
+            ESP_LOGW(TAG, "RX buffer overflow, drop %d bytes", len);
         }
         return 0;
     }

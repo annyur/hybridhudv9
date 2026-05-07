@@ -40,11 +40,24 @@ void elm_poll(uint32_t now_ms)
             continue;
         }
         ESP_LOGI(TAG, "RAW chunk[%d]: %.*s", len, len, buf);
+        
+        /* 缓冲区溢出保护 */
+        if (len >= ELM_RX_SIZE) {
+            /* 单次数据太大，丢弃 */
+            ESP_LOGW(TAG, "chunk too large (%d), drop", len);
+            ble_rx_clear();
+            continue;
+        }
         if (s_rx_len + len >= ELM_RX_SIZE) {
             /* 缓冲区满：丢弃前半部分 */
             int half = s_rx_len / 2;
             memmove(s_rx, s_rx + half, s_rx_len - half);
             s_rx_len -= half;
+            /* 再次检查是否足够 */
+            if (s_rx_len + len >= ELM_RX_SIZE) {
+                ESP_LOGW(TAG, "buffer overflow, clear");
+                s_rx_len = 0;
+            }
         }
         memcpy(s_rx + s_rx_len, buf, len);
         s_rx_len += len;

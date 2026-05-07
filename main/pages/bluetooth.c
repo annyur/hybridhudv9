@@ -44,7 +44,11 @@ static void set_btn_style(lv_obj_t *btn);
 static void nvs_save_last_addr(const uint8_t *addr)
 {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS_BT, NVS_READWRITE, &h) != ESP_OK) return;
+    esp_err_t ret = nvs_open(NVS_NS_BT, NVS_READWRITE, &h);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open failed: %s (NVS partition may be corrupted)", esp_err_to_name(ret));
+        return;
+    }
     nvs_set_blob(h, NVS_KEY_LAST, addr, 6);
     nvs_commit(h);
     nvs_close(h);
@@ -54,10 +58,14 @@ static void nvs_save_last_addr(const uint8_t *addr)
 static void nvs_load_last_addr(void)
 {
     nvs_handle_t h;
-    if (nvs_open(NVS_NS_BT, NVS_READONLY, &h) != ESP_OK) return;
+    esp_err_t ret = nvs_open(NVS_NS_BT, NVS_READONLY, &h);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_open failed: %s (NVS partition may be corrupted)", esp_err_to_name(ret));
+        return;
+    }
 
     size_t len = 6;
-    esp_err_t ret = nvs_get_blob(h, NVS_KEY_LAST, s_last_addr, &len);
+    ret = nvs_get_blob(h, NVS_KEY_LAST, s_last_addr, &len);
     nvs_close(h);
 
     s_has_last = (ret == ESP_OK && len == 6);
@@ -284,6 +292,7 @@ static void refresh_list(void)
     lv_obj_t *list = guider_ui.bluetooth_bt_list_devices;
     if (!list) return;
 
+    /* 清理旧列表项 - lv_obj_clean 会递归删除所有子对象并释放资源 */
     lv_obj_clean(list);
 
     int count = scan_get_count();
@@ -300,7 +309,10 @@ static void refresh_list(void)
     if (total == 0) return;
 
     int *order = (int *)malloc(sizeof(int) * total);
-    if (!order) return;
+    if (!order) {
+        ESP_LOGE(TAG, "refresh_list: malloc failed");
+        return;
+    }
 
     for (int i = 0; i < count; i++) order[i] = i;
     if (s_has_last && !last_in_list) order[count] = -1;
@@ -317,9 +329,11 @@ static void refresh_list(void)
                      s_last_addr[0], s_last_addr[1], s_last_addr[2],
                      s_last_addr[3], s_last_addr[4], s_last_addr[5]);
             lv_obj_t *btn = lv_list_add_button(list, NULL, label);
-            set_btn_style(btn);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0xdddddd), LV_PART_MAIN);
-            lv_obj_add_event_cb(btn, on_list_item, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+            if (btn) {
+                set_btn_style(btn);
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0xdddddd), LV_PART_MAIN);
+                lv_obj_add_event_cb(btn, on_list_item, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
+            }
             continue;
         }
 
@@ -329,19 +343,20 @@ static void refresh_list(void)
         bool is_connected = (idx == s_conn_idx);
         bool is_last = (memcmp(d->addr, s_last_addr, 6) == 0);
 
-        snprintf(label, sizeof(label), "%s%s%s",
+        snprintf(label, sizeof(label), "%s%s",
                  is_connected ? "[C] " : (is_last ? "[L] " : ""),
-                 d->name[0] ? d->name : "Unknown",
-                 "");
+                 d->name[0] ? d->name : "Unknown");
 
         lv_obj_t *btn = lv_list_add_button(list, NULL, label);
-        set_btn_style(btn);
-        if (is_connected) {
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x00ff24), LV_PART_MAIN);
-        } else if (is_last) {
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0xdddddd), LV_PART_MAIN);
+        if (btn) {
+            set_btn_style(btn);
+            if (is_connected) {
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0x00ff24), LV_PART_MAIN);
+            } else if (is_last) {
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0xdddddd), LV_PART_MAIN);
+            }
+            lv_obj_add_event_cb(btn, on_list_item, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
         }
-        lv_obj_add_event_cb(btn, on_list_item, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
     }
 
     free(order);

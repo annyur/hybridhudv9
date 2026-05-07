@@ -185,6 +185,9 @@ bool obd_queue_send(const obd_data_t *data);
 /* obd_queue_send_from_obd_update: 在 OBD 更新完成后调用，发送数据到队列 (内部使用) */
 void obd_queue_send_from_obd_update(void);
 
+/* obd_get_queue_overflow_cnt: 获取队列溢出计数 */
+uint32_t obd_get_queue_overflow_cnt(void);
+
 #ifdef __cplusplus
 }
 #endif
