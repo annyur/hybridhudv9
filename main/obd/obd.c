@@ -35,11 +35,51 @@ static bool s_running = false;
 
 /* ---------- 消息队列 ---------- */
 #define OBD_QUEUE_LENGTH  16  /* 队列长度（从8增加到16，提高缓冲能力）*/
-#define OBD_QUEUE_ITEM_SIZE sizeof(obd_data_t)
+#define OBD_QUEUE_ITEM_SIZE sizeof(obd_data_t*)
 static QueueHandle_t s_obd_queue = NULL;
 static uint32_t s_last_send_ms = 0;
 static uint32_t s_queue_overflow_cnt = 0;  /* 溢出计数器 */
 #define OBD_QUEUE_SEND_INTERVAL_MS 50  /* 发送间隔 - 与功率轮询周期匹配，降低队列压力 */
+
+/* ---------- 零拷贝缓冲池（替代值传递） ---------- */
+#define OBD_BUF_POOL_SIZE  4   /* 预分配4个缓冲区，完全消除动态内存分配 */
+typedef struct obd_buf_node {
+    obd_data_t data;
+    struct obd_buf_node *next;
+} obd_buf_node_t;
+
+static obd_buf_node_t s_buf_pool[OBD_BUF_POOL_SIZE];  /* 预分配缓冲区 */
+static obd_buf_node_t *s_free_list = NULL;              /* 空闲链表 */
+
+/* 获取缓冲池中的空闲节点 */
+static inline obd_buf_node_t *buf_alloc(void)
+{
+    obd_buf_node_t *node = s_free_list;
+    if (node) {
+        s_free_list = node->next;
+        node->next = NULL;
+    }
+    return node;
+}
+
+/* 归还节点到空闲链表 */
+static inline void buf_free(obd_buf_node_t *node)
+{
+    if (!node) return;
+    node->next = s_free_list;
+    s_free_list = node;
+}
+
+/* 初始化缓冲池 */
+static void buf_pool_init(void)
+{
+    s_free_list = NULL;
+    for (int i = 0; i < OBD_BUF_POOL_SIZE; i++) {
+        s_buf_pool[i].next = s_free_list;
+        s_free_list = &s_buf_pool[i];
+    }
+    ESP_LOGI(TAG, "OBD buf pool initialized (%d buffers)", OBD_BUF_POOL_SIZE);
+}
 
 /* ---------- 状态机定义 ---------- */
 typedef enum {
@@ -70,6 +110,10 @@ static uint32_t s_wait = 0;        /* 等待响应时间戳 */
 static int s_retry = 0;            /* init 重试计数 */
 static int s_tx_fail = 0;          /* 发送失败计数 */
 static bool s_atz_ready = false;   /* ATZ 后收到 > */
+
+/* ST_IDLE 空闲计数器：检测状态机未启动的异常情况 */
+static int s_idle_count = 0;
+#define IDLE_MAX_COUNT 100  /* 连续100次循环处于ST_IDLE且未运行时记录错误 */
 
 /* 平均功耗积分 */
 static float    s_power_integral = 0.0f;
@@ -905,7 +949,16 @@ bool obd_is_running(void) { return s_running; }
 /* obd_update: 状态机轮询 (每 20ms 调用) */
 void obd_update(void)
 {
-    if (!s_running) return;
+    /* ST_IDLE 空闲计数器：检测状态机未启动的异常情况 */
+    if (!s_running) {
+        s_idle_count++;
+        if (s_idle_count >= IDLE_MAX_COUNT) {
+            ESP_LOGE(TAG, "OBD state machine idle for %d cycles, not started?", s_idle_count);
+            s_idle_count = 0;  /* 重置计数器，避免日志刷屏 */
+        }
+        return;
+    }
+    s_idle_count = 0;  /* 运行中，重置空闲计数器 */
 
     elm_poll(0);
     while (elm_rx_ready()) handle_rx(elm_rx_buf());
@@ -1030,59 +1083,71 @@ void obd_queue_init(void)
     if (s_obd_queue == NULL) {
         s_obd_queue = xQueueCreate(OBD_QUEUE_LENGTH, OBD_QUEUE_ITEM_SIZE);
         if (s_obd_queue != NULL) {
-            ESP_LOGI(TAG, "OBD queue initialized (len=%d, size=%u)", 
+            ESP_LOGI(TAG, "OBD queue initialized (len=%d, size=%u)",
                      OBD_QUEUE_LENGTH, OBD_QUEUE_ITEM_SIZE);
         } else {
             ESP_LOGE(TAG, "Failed to create OBD queue");
         }
     }
+    /* 初始化零拷贝缓冲池 */
+    buf_pool_init();
 }
 
-/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据 */
-bool obd_queue_receive(obd_data_t *data)
+/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据（返回指针） */
+obd_data_t *obd_queue_receive(void)
 {
-    if (s_obd_queue == NULL || data == NULL) {
-        return false;
+    if (s_obd_queue == NULL) {
+        return NULL;
     }
-    
+
     /* 非阻塞接收，队列为空时立即返回 */
-    if (xQueueReceive(s_obd_queue, data, 0) == pdTRUE) {
-        return true;
+    obd_data_t *ptr = NULL;
+    if (xQueueReceive(s_obd_queue, &ptr, 0) == pdTRUE) {
+        return ptr;
     }
-    return false;
+    return NULL;
 }
 
-/* obd_queue_send: 发送 OBD 数据到队列 */
+/* obd_queue_send: 发送 OBD 数据到队列（指针传递） */
 bool obd_queue_send(const obd_data_t *data)
 {
     if (s_obd_queue == NULL || data == NULL) {
         return false;
     }
-    
+
     /* 控制发送频率，避免队列过快填满 */
     uint32_t now = lv_tick_get();
     if (now - s_last_send_ms < OBD_QUEUE_SEND_INTERVAL_MS) {
         return false;
     }
-    
-    /* 发送数据到队列（非阻塞）*/
-    if (xQueueSend(s_obd_queue, data, 0) == pdTRUE) {
+
+    /* 从缓冲池获取空闲节点 */
+    obd_buf_node_t *node = buf_alloc();
+    if (node == NULL) {
+        /* 缓冲池耗尽，丢弃数据 */
+        s_queue_overflow_cnt++;
+        if (s_queue_overflow_cnt % 10 == 1) {
+            ESP_LOGW(TAG, "OBD buf pool exhausted (cnt=%u)", s_queue_overflow_cnt);
+        }
+        return false;
+    }
+
+    /* 复制数据到缓冲池节点 */
+    node->data = *data;
+    node->next = NULL;
+
+    /* 发送指针到队列（非阻塞）*/
+    if (xQueueSend(s_obd_queue, &node, 0) == pdTRUE) {
         s_last_send_ms = now;
         return true;
     }
-    
-    /* 队列满，移除最旧数据并重试 */
+
+    /* 队列满，释放节点并返回失败 */
+    buf_free(node);
     s_queue_overflow_cnt++;
-    if (s_queue_overflow_cnt % 10 == 1) {  /* 每10次溢出记录一次日志 */
-        ESP_LOGW(TAG, "OBD queue overflow, drop oldest (cnt=%u)", s_queue_overflow_cnt);
+    if (s_queue_overflow_cnt % 10 == 1) {
+        ESP_LOGW(TAG, "OBD queue full (cnt=%u)", s_queue_overflow_cnt);
     }
-    obd_data_t temp_data;
-    xQueueReceive(s_obd_queue, &temp_data, 0);
-    if (xQueueSend(s_obd_queue, data, 0) == pdTRUE) {
-        s_last_send_ms = now;
-        return true;
-    }
-    
     return false;
 }
 
@@ -1090,6 +1155,16 @@ bool obd_queue_send(const obd_data_t *data)
 void obd_queue_send_from_obd_update(void)
 {
     obd_queue_send(&s_data);
+}
+
+/* obd_queue_return: 归还缓冲池节点（UI任务处理完成后调用）
+ * @param ptr 从 obd_queue_receive 获取的指针 */
+void obd_queue_return(obd_data_t *ptr)
+{
+    if (ptr == NULL) return;
+    /* 将指针转换回节点并归还到空闲链表 */
+    obd_buf_node_t *node = (obd_buf_node_t *)((uint8_t *)ptr - offsetof(obd_buf_node_t, data));
+    buf_free(node);
 }
 
 /* obd_get_queue_overflow_cnt: 获取队列溢出计数 */

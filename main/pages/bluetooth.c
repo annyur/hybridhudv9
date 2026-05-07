@@ -7,6 +7,7 @@
 #include "screen.h"
 #include "gui_guider.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include <stdio.h>
 #include <string.h>
@@ -101,63 +102,69 @@ void bluetooth_ui_init(void)
     ESP_LOGI(TAG, "ui_init done");
 }
 
-/* ========== 后台自动回连（main.c 循环调用，无需进入界面） ========== */
-void bluetooth_auto_reconnect(void)
+/* ========== 事件驱动的BLE重连（替代轮询） ========== */
+static int s_retry = 0;
+static uint32_t s_fail_cooldown_ms = 0;
+
+/* BLE断开事件回调（由conn.c在断开时调用） */
+void bluetooth_on_disconnect(void)
 {
-    static int s_state = 0;   /* 0=等待 1=已尝试 2=成功 3=放弃 */
-    static int s_tick = 0;
-    static int s_retry = 0;
-    static uint32_t s_connect_start_ms = 0;
-    static uint32_t s_fail_cooldown_ms = 0;  /* 连接失败后的冷却时间 */
+    /* 停止正在运行的定时器 */
+    conn_stop_reconnect_timer();
 
-    if (s_state == 2 || s_state == 3) return;  /* 成功或放弃后不再尝试 */
-
-    /* 检查冷却期（固定5秒，给 NimBLE 更多清理时间） */
-    uint32_t now = lv_tick_get();
     if (s_fail_cooldown_ms > 0) {
-        if (now - s_fail_cooldown_ms < 5000) {
-            return;  /* 冷却期内不尝试连接 */
-        }
-        s_fail_cooldown_ms = 0;
+        return;  /* 冷却期内不尝试 */
     }
 
-    s_tick++;
-    if (s_tick < 3) return;      /* ~300ms 快速等待 NimBLE 就绪 */
-
+    /* 加载上次连接地址 */
     if (!s_has_last) {
-        nvs_load_last_addr();      /* 提前加载地址 */
+        nvs_load_last_addr();
     }
 
     if (!s_has_last) {
         ESP_LOGW(TAG, "no last addr, skip auto reconnect");
-        s_state = 3;
         return;
     }
 
-    if (ble_is_connected()) {
-        s_state = 2;
+    /* 启动1秒后重连定时器 */
+    conn_start_reconnect_timer();
+}
+
+/* 定时器回调：执行重连 */
+static void on_bluetooth_reconnect_timer(void *arg)
+{
+    (void)arg;
+
+    if (s_fail_cooldown_ms > 0) {
+        return;  /* 冷却期内不尝试 */
+    }
+
+    if (!s_has_last) {
+        ESP_LOGW(TAG, "no last addr, skip auto reconnect");
         return;
     }
 
-    /* 连接超时检测：如果发起连接后1秒仍未成功，重试 */
-    if (s_state == 1) {
-        if (now - s_connect_start_ms > 1000) {
-            ESP_LOGW(TAG, "connect timeout, retry=%d", s_retry);
-            /* 连接失败后先断开，确保 NimBLE 栈状态正确 */
-            conn_disconnect();
-            s_state = 0;  /* 重置状态 */
-            s_fail_cooldown_ms = now;  /* 设置冷却期 */
-            s_retry++;
-        }
-        return;
-    }
+    ESP_LOGI(TAG, "reconnect timer fired, retry=%d", s_retry);
+    conn_connect(s_last_addr, BLE_ADDR_PUBLIC);
+}
 
-    if (s_state == 0) {
-        ESP_LOGI(TAG, "auto reconnect last device... (retry=%d)", s_retry);
-        conn_connect(s_last_addr, BLE_ADDR_PUBLIC);
-        s_state = 1;  /* 已发起连接 */
-        s_connect_start_ms = now;
-    }
+/* 初始化事件驱动的BLE重连机制 */
+void bluetooth_reconnect_init(void)
+{
+    /* 注册断开事件回调 */
+    conn_register_disconnect_cb(bluetooth_on_disconnect);
+
+    /* 设置定时器回调 */
+    conn_set_reconnect_callback(on_bluetooth_reconnect_timer, NULL);
+
+    ESP_LOGI(TAG, "BLE reconnect event-driven mode initialized");
+}
+
+/* ========== 后台自动回连（兼容接口，定时器触发时调用） ========== */
+void bluetooth_auto_reconnect(void)
+{
+    /* 此函数现在由定时器回调 on_bluetooth_reconnect_timer 调用
+       保留此接口是为了兼容，但实际不再由 service_task 轮询调用 */
 }
 
 /* ========== 公共接口 ========== */

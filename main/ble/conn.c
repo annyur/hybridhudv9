@@ -6,6 +6,7 @@
 #include "host/ble_hs.h"
 #include "host/ble_sm.h"
 #include "os/os_mbuf.h"
+#include "esp_timer.h"
 #include <string.h>
 
 static const char *TAG = "CONN";
@@ -25,6 +26,15 @@ static bool     s_notify_enabled = false;
 
 static uint8_t  s_target_addr[6];
 static uint8_t  s_target_addr_type;
+
+/* 软件定时器用于BLE断开后自动重连（事件驱动替代轮询） */
+static esp_timer_handle_t s_reconnect_timer = NULL;
+static bool s_reconnect_timer_started = false;
+static esp_timer_cb_t s_reconnect_timer_cb = NULL;
+static void *s_reconnect_timer_arg = NULL;
+
+/* 断开事件回调（由应用层注册） */
+static void (*s_disconnect_cb)(void) = NULL;
 
 /* ========== 串行发现状态机 ========== */
 typedef enum {
@@ -89,6 +99,75 @@ void conn_init(void)
     s_chr_count = 0; s_cur_chr = 0;
     memset(s_svcs, 0, sizeof(s_svcs));
     memset(s_chrs, 0, sizeof(s_chrs));
+
+    /* 初始化软件定时器（用于断开后重连） */
+    if (s_reconnect_timer == NULL) {
+        const esp_timer_create_args_t timer_args = {
+            .callback = NULL,  /* 定时器回调由 bluetooth.c 提供 */
+            .arg = NULL,
+            .name = "ble_reconnect"
+        };
+        esp_timer_create(&timer_args, &s_reconnect_timer);
+    }
+}
+
+/* 注册断开事件回调 */
+void conn_register_disconnect_cb(void (*cb)(void))
+{
+    s_disconnect_cb = cb;
+}
+
+/* 设置重连定时器回调（由 bluetooth.c 调用） */
+void conn_set_reconnect_callback(esp_timer_cb_t callback, void *arg)
+{
+    s_reconnect_timer_cb = callback;
+    s_reconnect_timer_arg = arg;
+
+    /* 如果定时器已存在，需要重新创建以设置新回调 */
+    if (s_reconnect_timer) {
+        esp_timer_delete(s_reconnect_timer);
+        s_reconnect_timer = NULL;
+        s_reconnect_timer_started = false;
+    }
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = s_reconnect_timer_cb,
+        .arg = s_reconnect_timer_arg,
+        .name = "ble_reconnect"
+    };
+    esp_err_t ret = esp_timer_create(&timer_args, &s_reconnect_timer);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "failed to create reconnect timer: %s", esp_err_to_name(ret));
+    }
+}
+
+/* 启动断开后重连定时器（1秒后触发） */
+void conn_start_reconnect_timer(void)
+{
+    if (s_reconnect_timer && !s_reconnect_timer_started) {
+        esp_err_t ret = esp_timer_start_once(s_reconnect_timer, 1000000);  /* 1秒 = 1000000微秒 */
+        if (ret == ESP_OK) {
+            s_reconnect_timer_started = true;
+            ESP_LOGI(TAG, "reconnect timer started");
+        } else {
+            ESP_LOGE(TAG, "failed to start reconnect timer: %s", esp_err_to_name(ret));
+        }
+    }
+}
+
+/* 停止重连定时器 */
+void conn_stop_reconnect_timer(void)
+{
+    if (s_reconnect_timer && s_reconnect_timer_started) {
+        esp_timer_stop(s_reconnect_timer);
+        s_reconnect_timer_started = false;
+    }
+}
+
+/* 获取重连定时器句柄（供外部设置回调） */
+esp_timer_handle_t conn_get_reconnect_timer(void)
+{
+    return s_reconnect_timer;
 }
 
 bool conn_is_connected(void) { return s_connected; }
@@ -184,6 +263,9 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
         s_conn_handle = event->connect.conn_handle;
         ESP_LOGI(TAG, "connected, handle=%d", s_conn_handle);
 
+        /* 连接成功，停止重连定时器 */
+        conn_stop_reconnect_timer();
+
         /* ===== 优化：OBDLink MX+ 固定 handle，跳过 GATT discovery（省 ~3 秒） ===== */
         s_notify_handle = 0x0016;
         s_write_handle  = 0x0019;
@@ -219,6 +301,14 @@ static int gap_conn_event(struct ble_gap_event *event, void *arg)
         s_write_handle = 0; s_notify_handle = 0; s_cccd_handle = 0;
         s_notify_enabled = false;
         s_disc_state = DISC_SVC;
+
+        /* 停止重连定时器（如果正在运行） */
+        conn_stop_reconnect_timer();
+
+        /* 调用断开事件回调（触发重连逻辑） */
+        if (s_disconnect_cb) {
+            s_disconnect_cb();
+        }
         return 0;
     }
     case BLE_GAP_EVENT_NOTIFY_RX: {
@@ -477,6 +567,19 @@ static void disc_finish(void)
         ESP_LOGW(TAG, "cccd mismatch (0x%04X vs expected 0x%04X), re-enable", s_cccd_handle, preferred_cccd);
         enable_notify(s_conn_handle, preferred_cccd);
         s_cccd_handle = preferred_cccd;
+    }
+
+    /* 最后检查：如果 notify handle 已找到但未启用，尝试盲写 cccd */
+    if (!s_notify_enabled && s_notify_handle != 0) {
+        if (s_cccd_handle != 0) {
+            ESP_LOGW(TAG, "notify not enabled but cccd found, retry enable at 0x%04X", s_cccd_handle);
+            enable_notify(s_conn_handle, s_cccd_handle);
+        } else {
+            /* 盲写 notify handle + 1（常见的 CCCD 位置） */
+            uint16_t guess = s_notify_handle + 1;
+            ESP_LOGW(TAG, "notify not enabled, no cccd found, blind write to 0x%04X", guess);
+            enable_notify(s_conn_handle, guess);
+        }
     }
 
     ESP_LOGI(TAG, "disc done, W=0x%04X N=0x%04X CCCD=0x%04X enabled=%d",

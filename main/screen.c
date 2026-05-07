@@ -15,6 +15,7 @@ static screen_id_t s_current = SCREEN_RACE;
 static uint32_t    s_last_switch_ms = 0;
 static screen_id_t s_switch_request = SCREEN_NONE;  /* 屏幕切换请求标志 */
 static SemaphoreHandle_t s_screen_mutex = NULL;     /* 屏幕状态互斥锁 */
+static volatile bool s_ui_refresh_pending = false;  /* UI刷新标志：数据到达时置位 */
 
 void screen_init(void)
 {
@@ -50,6 +51,18 @@ void screen_request_switch(screen_id_t id)
         }
         xSemaphoreGive(s_screen_mutex);
     }
+}
+
+/* 设置 UI 刷新标志（由数据接收端调用） */
+void screen_set_refresh_pending(void)
+{
+    s_ui_refresh_pending = true;
+}
+
+/* 清除 UI 刷新标志 */
+void screen_clear_refresh_pending(void)
+{
+    s_ui_refresh_pending = false;
 }
 
 static void screen_switch_internal(screen_id_t id)
@@ -120,6 +133,12 @@ void screen_update(void)
         }
         return;  /* 切换完成后跳过本次更新 */
     }
+
+    /* 无刷新标志时跳过 UI 更新（事件驱动：仅数据到达时刷新） */
+    if (!s_ui_refresh_pending) {
+        return;
+    }
+    s_ui_refresh_pending = false;  /* 清除标志 */
 
     /* 加锁读取当前屏幕 */
     screen_id_t current = SCREEN_RACE;
