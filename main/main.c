@@ -6,7 +6,6 @@
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
 
-#include "lvgl.h"
 #include "screen.h"
 #include "imu.h"
 #include "rtc.h"
@@ -22,35 +21,19 @@ static const char *TAG = "MAIN";
 static uint32_t s_conn_ready_ms = 0;
 static bool s_obd_waiting = false;
 
-static void service_task(void *pv)
+static void sensor_task(void *pv)
 {
-    (void)pv;
-    uint32_t last_key_scan = 0;
-    const uint32_t key_scan_interval = 33;   /* 30Hz 按键扫描 */
-
-    /* 初始化事件驱动的BLE重连（仅执行一次） */
-    bluetooth_reconnect_init();
-
-    while (1) {
-        uint32_t now = lv_tick_get();
-
-        /* 按键扫描 30Hz */
-        if (now - last_key_scan >= key_scan_interval) {
-            last_key_scan = now;
-            key_poll();
-        }
-
-        /* BLE重连现在由事件驱动，不再需要轮询 */
-
-        vTaskDelay(pdMS_TO_TICKS(10));  /* 100Hz 服务任务轮询 */
-    }
+    hud_imu_init();
+    hud_rtc_init();
+    /* 初始化后可以删除任务，节省资源 */
+    vTaskDelete(NULL);
 }
 
 static void obd_task(void *pv)
 {
     (void)pv;
     obd_init();
-
+    
     while (1) {
         if (conn_is_ready() && !obd_is_running()) {
             if (!s_obd_waiting) {
@@ -58,7 +41,7 @@ static void obd_task(void *pv)
                 s_obd_waiting = true;
                 ESP_LOGI(TAG, "OBD waiting for BT stabilization...");
             } else {
-                /* 等待 300ms 让蓝牙链路稳定 */
+                /* 等待 300ms 让蓝牙链路稳定（进一步减少延迟）*/
                 if (lv_tick_get() - s_conn_ready_ms >= 300) {
                     obd_start();
                     ESP_LOGI(TAG, "OBD auto started");
@@ -70,6 +53,24 @@ static void obd_task(void *pv)
         }
         obd_update();
         vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+static void key_task(void *pv)
+{
+    (void)pv;
+    while (1) {
+        key_poll();
+        vTaskDelay(pdMS_TO_TICKS(33));  /* 30Hz 按键扫描（降低轮询频率，减少CPU开销）*/
+    }
+}
+
+static void ble_reconnect_task(void *pv)
+{
+    (void)pv;
+    while (1) {
+        bluetooth_auto_reconnect();
+        vTaskDelay(pdMS_TO_TICKS(1000));  /* 每秒检查一次重连 */
     }
 }
 
@@ -90,9 +91,7 @@ void app_main(void)
     ble_init();
     ble_enable();
     key_init();
-    hud_imu_init();   /* 在 service_task 运行前初始化 IMU */
-    hud_rtc_init();   /* 初始化 RTC */
-
+    
     /* 初始化 OBD 消息队列（非阻塞数据同步）*/
     obd_queue_init();
 
@@ -101,9 +100,10 @@ void app_main(void)
     screen_init();
     bsp_display_unlock();
 
-    /* 创建任务：OBD(优先级5) + 综合服务(优先级3) */
-    xTaskCreatePinnedToCore(obd_task,     "OBD",     4096, NULL, 5, NULL, 0);  /* OBD数据采集 */
-    xTaskCreatePinnedToCore(service_task, "SERVICE", 4096, NULL, 3, NULL, 0);  /* 按键+蓝牙+综合服务 */
+    xTaskCreatePinnedToCore(sensor_task,         "SENS",  2048, NULL, 3, NULL, 1);  /* 减少栈大小 */
+    xTaskCreatePinnedToCore(obd_task,           "OBD",   3584, NULL, 5, NULL, 0);  /* 调整到更合理的大小 */
+    xTaskCreatePinnedToCore(key_task,           "KEY",   1536, NULL, 4, NULL, 0);  /* 减少栈大小 */
+    xTaskCreatePinnedToCore(ble_reconnect_task, "BLE",   2048, NULL, 2, NULL, 0);  /* 减少栈大小 */
 
     /* 主循环：精确 60Hz UI 更新 */
     TickType_t xLastWakeTime = xTaskGetTickCount();

@@ -45,7 +45,7 @@ void setup_scr_race(lv_ui *ui)
     ui->race_line_2 = lv_line_create(ui->race);
     lv_obj_set_pos(ui->race_line_2, 208, 232);
     lv_obj_set_size(ui->race_line_2, 50, 1);
-    static const lv_point_precise_t race_line_2[] = {{1, 1},{50, 1}};
+    static lv_point_precise_t race_line_2[] = {{1, 1},{50, 1}};
     lv_line_set_points(ui->race_line_2, race_line_2, 2);
 
     //Write style for race_line_2, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.
@@ -58,7 +58,7 @@ void setup_scr_race(lv_ui *ui)
     ui->race_line_1 = lv_line_create(ui->race);
     lv_obj_set_pos(ui->race_line_1, 232, 208);
     lv_obj_set_size(ui->race_line_1, 1, 50);
-    static const lv_point_precise_t race_line_1[] = {{1, 1},{1, 50}};
+    static lv_point_precise_t race_line_1[] = {{1, 1},{1, 50}};
     lv_line_set_points(ui->race_line_1, race_line_1, 2);
 
     //Write style for race_line_1, Part: LV_PART_MAIN, State: LV_STATE_DEFAULT.

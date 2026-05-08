@@ -172,14 +172,10 @@ obd_data_t *obd_get_data_rw(void);
 /* obd_queue_init: 初始化 OBD 数据消息队列 */
 void obd_queue_init(void);
 
-/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据（零拷贝指针）
- * @return 指向 obd_data_t 的指针，NULL 表示队列为空
- * @note 使用完毕后必须调用 obd_queue_return() 归还缓冲池节点 */
-obd_data_t *obd_queue_receive(void);
-
-/* obd_queue_return: 归还缓冲池节点（UI任务处理完成后调用）
- * @param ptr 从 obd_queue_receive 获取的指针 */
-void obd_queue_return(obd_data_t *ptr);
+/* obd_queue_receive: 从队列非阻塞接收最新 OBD 数据
+ * @param data 接收缓冲区
+ * @return true 成功接收到数据, false 队列为空 */
+bool obd_queue_receive(obd_data_t *data);
 
 /* obd_queue_send: 发送 OBD 数据到队列 (内部使用)
  * @param data 要发送的数据

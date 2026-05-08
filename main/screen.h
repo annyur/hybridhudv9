@@ -18,8 +18,6 @@ void screen_switch(screen_id_t id);
 void screen_request_switch(screen_id_t id);
 void screen_update(void);
 screen_id_t screen_current(void);
-void screen_set_refresh_pending(void);   /* 设置刷新标志（OBD数据到达时调用） */
-void screen_clear_refresh_pending(void);  /* 清除刷新标志 */
 
 #ifdef __cplusplus
 }

@@ -11,8 +11,7 @@ void bluetooth_enter(void);
 void bluetooth_exit(void);
 void bluetooth_update(void);
 void bluetooth_auto_reconnect(void);
-void bluetooth_reconnect_init(void);  /* 初始化事件驱动的BLE重连 */
-void bluetooth_on_disconnect(void);   /* BLE断开事件回调（供conn.c调用） */
+void bluetooth_reset_reconnect_state(void);  /* 重置重连状态，允许重新连接 */
 
 #ifdef __cplusplus
 }

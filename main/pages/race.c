@@ -12,7 +12,6 @@
 #include "../generated/gui_guider.h"
 #include "../obd/obd.h"
 #include "../ble/ble.h"
-#include "../screen.h"
 #include <math.h>
 #include <stdio.h>
 #include "esp_log.h"
@@ -65,9 +64,8 @@ static int   s_last_batt_temp = -999;
 
 /* arc5/6 颜色缓存 — style 修改开销大，只在功率变化时更新 */
 static float s_last_power_kw = -999.0f;
-static int   s_last_arc_spread = -1;     /* 上次设置到 arc 的扩散值 */
-static int   s_display_spread = 0;       /* 当前显示的 arc 扩散值（用于步进动画）*/
-static int   s_last_set_arc_spread = -1; /* 上次实际设置到 LVGL arc 的扩散值（用于节流）*/
+static int   s_last_arc_spread = -1;
+static int   s_display_spread = 0;     /* 当前显示的 arc 扩散值（用于步进动画）*/
 
 /* BLE 状态缓存 — 每 100ms 查一次 */
 static uint32_t s_last_ble_check_ms = 0;
@@ -88,9 +86,9 @@ static float s_animated_kw = 0.0f;  /* 当前动画值 */
 static void arc7_breath_start(void);
 static void arc7_breath_stop(void);
 
-/* G-force 位置节流 — 只有移动超过1像素才更新 LVGL */
+/* G-force 位置节流 — 只有移动超过阈值才更新 LVGL */
 static float s_last_g_px = 0.0f, s_last_g_py = 0.0f;
-#define G_POS_THRESH  1.0f
+#define G_POS_THRESH  2.0f
 
 /* G-force 数值标签缓存 - 避免重复设置相同文本 */
 static float s_last_g_val_top = 999.0f;
@@ -124,6 +122,68 @@ static float g_to_pixel(float g)
     else if (abs_g <= G_MAX)     px = G_INNER_R + ((abs_g - G_THRESH) / (G_MAX - G_THRESH)) * (G_OUTER_R - G_INNER_R);
     else                         px = G_OUTER_R;
     return px * sign;
+}
+
+/* ---------- 公共 G-force 处理函数 ---------- */
+static void update_gforce(void)
+{
+    char buf[32];
+    float ax, ay, az;
+    if (!hud_imu_get_accel(&ax, &ay, &az)) {
+        return;
+    }
+    
+    float raw_x = (-ay) / 9.80665f;
+    float raw_y = (az)  / 9.80665f;
+    float jerk_x = raw_x - s_gforce.prev_x;
+    float jerk_y = raw_y - s_gforce.prev_y;
+    float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
+    s_gforce.prev_x = raw_x;
+    s_gforce.prev_y = raw_y;
+    s_gforce.ema_x = ema_filter(s_gforce.ema_x, shake_comp(raw_x, jerk));
+    s_gforce.ema_y = ema_filter(s_gforce.ema_y, shake_comp(raw_y, jerk));
+    float off_x = g_to_pixel(s_gforce.ema_x);
+    float off_y = g_to_pixel(s_gforce.ema_y);
+    float px = G_CENTER_X + off_x - 10.0f;
+    float py = G_CENTER_Y + off_y - 10.0f;
+    if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
+    if (px > G_CENTER_X + G_OUTER_R - 20.0f) px = G_CENTER_X + G_OUTER_R - 20.0f;
+    if (py < G_CENTER_Y - G_OUTER_R) py = G_CENTER_Y - G_OUTER_R;
+    if (py > G_CENTER_Y + G_OUTER_R - 20.0f) py = G_CENTER_Y + G_OUTER_R - 20.0f;
+
+    /* 节流：只有位置变化超过阈值才更新 LVGL */
+    if (fabsf(px - s_last_g_px) > G_POS_THRESH || fabsf(py - s_last_g_py) > G_POS_THRESH) {
+        lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
+        s_last_g_px = px;
+        s_last_g_py = py;
+    }
+
+    /* G-force 数值标签 - 只在值变化超过阈值时更新 */
+    float val_top = s_gforce.ema_y < 0 ? -s_gforce.ema_y : 0.0f;
+    float val_bottom = s_gforce.ema_y > 0 ? s_gforce.ema_y : 0.0f;
+    float val_left = s_gforce.ema_x < 0 ? -s_gforce.ema_x : 0.0f;
+    float val_right = s_gforce.ema_x > 0 ? s_gforce.ema_x : 0.0f;
+
+    if (fabsf(val_top - s_last_g_val_top) > 0.01f) {
+        snprintf(buf, sizeof(buf), "%.2f", val_top);
+        lv_label_set_text(guider_ui.race_label_top, buf);
+        s_last_g_val_top = val_top;
+    }
+    if (fabsf(val_bottom - s_last_g_val_bottom) > 0.01f) {
+        snprintf(buf, sizeof(buf), "%.2f", val_bottom);
+        lv_label_set_text(guider_ui.race_label_down, buf);
+        s_last_g_val_bottom = val_bottom;
+    }
+    if (fabsf(val_left - s_last_g_val_left) > 0.01f) {
+        snprintf(buf, sizeof(buf), "%.2f", val_left);
+        lv_label_set_text(guider_ui.race_label_left, buf);
+        s_last_g_val_left = val_left;
+    }
+    if (fabsf(val_right - s_last_g_val_right) > 0.01f) {
+        snprintf(buf, sizeof(buf), "%.2f", val_right);
+        lv_label_set_text(guider_ui.race_label_right, buf);
+        s_last_g_val_right = val_right;
+    }
 }
 
 /* ---------- 功率颜色 ----------
@@ -184,10 +244,9 @@ static void set_power_arcs(float target_power_kw)
         }
     }
     
-    /* 更新 arc 角度（扩散动画缓存：如果变化 < 3，跳过 LVGL 调用） */
-    int spread_delta = abs(s_display_spread - s_last_set_arc_spread);
-    if (spread_delta >= 3 || s_last_set_arc_spread < 0) {
-        s_last_set_arc_spread = s_display_spread;
+    /* 更新 arc 角度 */
+    if (s_display_spread != s_last_arc_spread) {
+        s_last_arc_spread = s_display_spread;
         int start5 = (s_display_spread <= 0) ? 0 : (360 - s_display_spread);
         lv_arc_set_start_angle(guider_ui.race_arc_5, start5);
         lv_arc_set_end_angle(guider_ui.race_arc_5, s_display_spread);
@@ -279,63 +338,8 @@ static void arc7_breath_stop(void)
 /* race_update_non_obd: 处理不需要 OBD 数据的 UI 更新（非阻塞模式下调用）*/
 static void race_update_non_obd(void)
 {
-    char buf[32];
-
     /* ---------- G-force ---------- */
-    {
-        float ax, ay, az;
-        if (hud_imu_get_accel(&ax, &ay, &az)) {
-            float raw_x = (-ay) / 9.80665f;
-            float raw_y = (az)  / 9.80665f;
-            float jerk_x = raw_x - s_gforce.prev_x;
-            float jerk_y = raw_y - s_gforce.prev_y;
-            float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
-            s_gforce.prev_x = raw_x; s_gforce.prev_y = raw_y;
-            s_gforce.ema_x = ema_filter(s_gforce.ema_x, shake_comp(raw_x, jerk));
-            s_gforce.ema_y = ema_filter(s_gforce.ema_y, shake_comp(raw_y, jerk));
-            float off_x = g_to_pixel(s_gforce.ema_x);
-            float off_y = g_to_pixel(s_gforce.ema_y);
-            float px = G_CENTER_X + off_x - 10.0f;
-            float py = G_CENTER_Y + off_y - 10.0f;
-            if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
-            if (px > G_CENTER_X + G_OUTER_R - 20.0f) px = G_CENTER_X + G_OUTER_R - 20.0f;
-            if (py < G_CENTER_Y - G_OUTER_R) py = G_CENTER_Y - G_OUTER_R;
-            if (py > G_CENTER_Y + G_OUTER_R - 20.0f) py = G_CENTER_Y + G_OUTER_R - 20.0f;
-
-            /* 节流：只有位置变化超过阈值才更新 LVGL */
-            if (fabsf(px - s_last_g_px) > G_POS_THRESH || fabsf(py - s_last_g_py) > G_POS_THRESH) {
-                lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
-                s_last_g_px = px; s_last_g_py = py;
-            }
-
-            /* G-force 数值标签 - 只在值变化超过阈值时更新 */
-            float val_top = s_gforce.ema_y < 0 ? -s_gforce.ema_y : 0.0f;
-            float val_bottom = s_gforce.ema_y > 0 ? s_gforce.ema_y : 0.0f;
-            float val_left = s_gforce.ema_x < 0 ? -s_gforce.ema_x : 0.0f;
-            float val_right = s_gforce.ema_x > 0 ? s_gforce.ema_x : 0.0f;
-
-            if (fabsf(val_top - s_last_g_val_top) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_top);
-                lv_label_set_text(guider_ui.race_label_top, buf);
-                s_last_g_val_top = val_top;
-            }
-            if (fabsf(val_bottom - s_last_g_val_bottom) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_bottom);
-                lv_label_set_text(guider_ui.race_label_down, buf);
-                s_last_g_val_bottom = val_bottom;
-            }
-            if (fabsf(val_left - s_last_g_val_left) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_left);
-                lv_label_set_text(guider_ui.race_label_left, buf);
-                s_last_g_val_left = val_left;
-            }
-            if (fabsf(val_right - s_last_g_val_right) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_right);
-                lv_label_set_text(guider_ui.race_label_right, buf);
-                s_last_g_val_right = val_right;
-            }
-        }
-    }
+    update_gforce();
 
     /* ---------- BLE 状态检查（每 100ms 一次）---------- */
     uint32_t now = lv_tick_get();
@@ -402,83 +406,29 @@ static void race_update_non_obd(void)
 /* ============================================================ */
 void race_update(void)
 {
-    /* 非阻塞接收 OBD 数据（零拷贝指针），队列为空时立即返回 */
-    obd_data_t *ptr = obd_queue_receive();
-
-    /* 如果收到新数据，复制到本地缓存并归还节点 */
-    if (ptr) {
-        s_obd_cache = *ptr;  /* 复制到缓存供后续使用 */
-        obd_queue_return(ptr);  /* 归还缓冲池节点 */
+    /* 非阻塞接收 OBD 数据，队列为空时立即返回，不阻塞 UI 渲染 */
+    obd_data_t new_data;
+    bool data_updated = obd_queue_receive(&new_data);
+    
+    /* 如果收到新数据，更新本地缓存 */
+    if (data_updated) {
+        s_obd_cache = new_data;
         s_obd_cache_valid = true;
-        screen_set_refresh_pending();  /* 触发 UI 刷新 */
     }
-
+    
     /* 如果没有有效的 OBD 数据缓存，跳过 OBD 相关更新 */
     if (!s_obd_cache_valid) {
         /* 仍然可以处理不需要 OBD 数据的更新（如 G-force）*/
         race_update_non_obd();
         return;
     }
-
+    
     /* 使用本地缓存的数据进行 UI 更新 */
     const obd_data_t *d = &s_obd_cache;
     char buf[32];
 
     /* ---------- G-force ---------- */
-    {
-        float ax, ay, az;
-        if (hud_imu_get_accel(&ax, &ay, &az)) {
-            float raw_x = (-ay) / 9.80665f;
-            float raw_y = (az)  / 9.80665f;
-            float jerk_x = raw_x - s_gforce.prev_x;
-            float jerk_y = raw_y - s_gforce.prev_y;
-            float jerk = (jerk_x < 0 ? -jerk_x : jerk_x) + (jerk_y < 0 ? -jerk_y : jerk_y);
-            s_gforce.prev_x = raw_x; s_gforce.prev_y = raw_y;
-            s_gforce.ema_x = ema_filter(s_gforce.ema_x, shake_comp(raw_x, jerk));
-            s_gforce.ema_y = ema_filter(s_gforce.ema_y, shake_comp(raw_y, jerk));
-            float off_x = g_to_pixel(s_gforce.ema_x);
-            float off_y = g_to_pixel(s_gforce.ema_y);
-            float px = G_CENTER_X + off_x - 10.0f;
-            float py = G_CENTER_Y + off_y - 10.0f;
-            if (px < G_CENTER_X - G_OUTER_R) px = G_CENTER_X - G_OUTER_R;
-            if (px > G_CENTER_X + G_OUTER_R - 20.0f) px = G_CENTER_X + G_OUTER_R - 20.0f;
-            if (py < G_CENTER_Y - G_OUTER_R) py = G_CENTER_Y - G_OUTER_R;
-            if (py > G_CENTER_Y + G_OUTER_R - 20.0f) py = G_CENTER_Y + G_OUTER_R - 20.0f;
-
-            /* 节流：只有位置变化超过阈值才更新 LVGL */
-            if (fabsf(px - s_last_g_px) > G_POS_THRESH || fabsf(py - s_last_g_py) > G_POS_THRESH) {
-                lv_obj_set_pos(guider_ui.race_label_G_piont, (lv_coord_t)px, (lv_coord_t)py);
-                s_last_g_px = px; s_last_g_py = py;
-            }
-
-            /* G-force 数值标签 - 只在值变化超过阈值时更新，避免重复设置文本 */
-            float val_top = s_gforce.ema_y < 0 ? -s_gforce.ema_y : 0.0f;
-            float val_bottom = s_gforce.ema_y > 0 ? s_gforce.ema_y : 0.0f;
-            float val_left = s_gforce.ema_x < 0 ? -s_gforce.ema_x : 0.0f;
-            float val_right = s_gforce.ema_x > 0 ? s_gforce.ema_x : 0.0f;
-
-            if (fabsf(val_top - s_last_g_val_top) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_top);
-                lv_label_set_text(guider_ui.race_label_top, buf);
-                s_last_g_val_top = val_top;
-            }
-            if (fabsf(val_bottom - s_last_g_val_bottom) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_bottom);
-                lv_label_set_text(guider_ui.race_label_down, buf);
-                s_last_g_val_bottom = val_bottom;
-            }
-            if (fabsf(val_left - s_last_g_val_left) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_left);
-                lv_label_set_text(guider_ui.race_label_left, buf);
-                s_last_g_val_left = val_left;
-            }
-            if (fabsf(val_right - s_last_g_val_right) > 0.01f) {
-                snprintf(buf, sizeof(buf), "%.2f", val_right);
-                lv_label_set_text(guider_ui.race_label_right, buf);
-                s_last_g_val_right = val_right;
-            }
-        }
-    }
+    update_gforce();
 
     /* ---------- arc5/arc6: 双向扩散功率显示（与蓝牙状态无关）---------- */
     /* 先更新 arc 和内部显示值，功率数字已在此函数内更新 */
@@ -581,7 +531,6 @@ void race_enter(void)
     s_last_g_px = 0.0f;
     s_last_g_py = 0.0f;
     s_last_arc_spread = -1;
-    s_last_set_arc_spread = -1;
     s_breath_running = false;
     s_last_g_val_top = 999.0f;
     s_last_g_val_bottom = 999.0f;
@@ -603,7 +552,17 @@ void race_enter(void)
     lv_obj_remove_flag(guider_ui.race_arc_6, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(guider_ui.race_arc_7, LV_OBJ_FLAG_CLICKABLE);
 
-    const obd_data_t *d = obd_get_data();
+    /* 使用与 update 一致的数据获取方式：先尝试从队列获取，没有则用缓存 */
+    obd_data_t temp_data;
+    const obd_data_t *d = NULL;
+    if (obd_queue_receive(&temp_data)) {
+        s_obd_cache = temp_data;
+        s_obd_cache_valid = true;
+        d = &s_obd_cache;
+    } else if (s_obd_cache_valid) {
+        d = &s_obd_cache;
+    }
+
     if (d) {
         char t[16];
         if (d->power_kw > 0.1f)       snprintf(t, sizeof(t), "%.1f", d->power_kw);

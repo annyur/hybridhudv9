@@ -8,7 +8,6 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "esp_timer.h"
 
 void conn_init(void);
 void conn_poll(void);
@@ -17,13 +16,6 @@ void conn_disconnect(void);
 bool conn_is_connected(void);
 bool conn_is_ready(void);           /* GATT 发现完成，可以安全写数据 */
 const uint8_t *conn_get_connected_addr(void);
-
-/* 软件定时器接口（用于事件驱动的BLE重连） */
-void conn_register_disconnect_cb(void (*cb)(void));
-void conn_set_reconnect_callback(esp_timer_cb_t callback, void *arg);
-void conn_start_reconnect_timer(void);
-void conn_stop_reconnect_timer(void);
-esp_timer_handle_t conn_get_reconnect_timer(void);
 
 /* 原始数据接口（供 ELM327 / OBD / ble.c 使用） */
 bool conn_write(const char *data, int len);
